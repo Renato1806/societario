@@ -693,6 +693,192 @@ function Contratos({ onNovoContrato }) {
 // ═════════════════════════════════════════════════════════════════════════════
 //  CONFIGURAÇÕES
 // ═════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+//  ASSINATURAS
+// ═════════════════════════════════════════════════════════════════════════════
+function Assinaturas() {
+  const [lista,   setLista]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [expanded,setExpanded]= useState(null);   // número do contrato expandido
+  const [reenviando, setReenviando] = useState({}); // {signerToken: bool}
+  const [msgReenvio, setMsgReenvio] = useState({}); // {signerToken: msg}
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try { const d = await apiFetch('assinaturas'); setLista(d); }
+    catch(e) { setError(e.message); }
+    finally  { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, []);
+
+  async function reenviar(signerToken, nome) {
+    setReenviando(r => ({...r, [signerToken]: true}));
+    setMsgReenvio(m => ({...m, [signerToken]: ''}));
+    try {
+      const d = await apiFetch('reenviarEmail', { signerToken });
+      setMsgReenvio(m => ({...m, [signerToken]: d.sucesso ? '✅ E-mail reenviado!' : '⚠️ ' + d.erro}));
+    } catch(e) {
+      setMsgReenvio(m => ({...m, [signerToken]: '⚠️ ' + e.message}));
+    } finally {
+      setReenviando(r => ({...r, [signerToken]: false}));
+    }
+  }
+
+  function statusBadge(s) {
+    if (s === 'signed')   return {bg:'#e8f5e9', color:'#1b5e20', label:'✅ Assinou'};
+    if (s === 'rejected') return {bg:'#fdecea', color:'#b71c1c', label:'❌ Recusou'};
+    return {bg:'#fff8e1', color:'#856404', label:'⏳ Pendente'};
+  }
+
+  function statusGeral(c) {
+    const s = String(c.statusAssin||'').toLowerCase();
+    if (s.includes('completo')) return {bg:'#e8f5e9', color:'#1b5e20', icon:'✅'};
+    if (s.includes('assinam'))  return {bg:'#e3f2fd', color:'#1565c0', icon:'⏳'};
+    return {bg:'#fff8e1', color:'#856404', icon:'⏳'};
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>🖊️ Assinaturas ZapSign</h2>
+        <button onClick={load} disabled={loading}
+          style={{padding:'8px 18px',borderRadius:10,background:C.med,color:'#fff',border:'none',cursor:loading?'not-allowed':'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:6}}>
+          {loading ? <Spinner size={16}/> : '🔄'} Atualizar Status
+        </button>
+      </div>
+
+      {loading && <Spinner/>}
+      {!loading && error && <ErrMsg msg={error} onRetry={load}/>}
+      {!loading && !error && lista.length === 0 && (
+        <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,padding:'40px',textAlign:'center',color:C.muted}}>
+          <div style={{fontSize:36,marginBottom:12}}>📭</div>
+          <div style={{fontWeight:600,fontSize:15}}>Nenhum contrato enviado para assinatura</div>
+          <div style={{fontSize:13,marginTop:6}}>Ao criar um contrato com ZapSign ativado, ele aparecerá aqui.</div>
+        </div>
+      )}
+
+      {!loading && !error && lista.length > 0 && (
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {lista.map((c,i) => {
+            const sg = statusGeral(c);
+            const isOpen = expanded === c.numero;
+            const total    = c.signatarios.length;
+            const assinaram= c.signatarios.filter(s=>s.status==='signed').length;
+
+            return (
+              <div key={i} style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.06)',overflow:'hidden'}}>
+                {/* Cabeçalho do card */}
+                <div style={{display:'flex',alignItems:'center',padding:'14px 18px',cursor:'pointer',gap:12,flexWrap:'wrap'}}
+                     onClick={()=>setExpanded(isOpen?null:c.numero)}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                      <span style={{fontWeight:700,color:C.dark,fontSize:14}}>{c.numero}</span>
+                      <span style={{fontWeight:500,fontSize:14,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}}>{c.cliente}</span>
+                    </div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>{c.email}</div>
+                  </div>
+
+                  {/* Progresso */}
+                  {total > 0 && (
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{fontSize:12,color:C.muted,fontWeight:600}}>{assinaram}/{total} assinaturas</div>
+                      <div style={{width:80,height:6,background:'#e0e0e0',borderRadius:3,overflow:'hidden'}}>
+                        <div style={{width:`${(assinaram/total)*100}%`,height:'100%',background:assinaram===total?'#4caf50':C.med,borderRadius:3,transition:'width 0.3s'}}/>
+                      </div>
+                    </div>
+                  )}
+
+                  <span style={{padding:'3px 12px',borderRadius:20,fontSize:12,fontWeight:600,background:sg.bg,color:sg.color,whiteSpace:'nowrap'}}>
+                    {sg.icon} {c.statusAssin || 'Aguardando'}
+                  </span>
+
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    {c.linkZapSign && (
+                      <a href={c.linkZapSign} target="_blank" rel="noreferrer"
+                         onClick={e=>e.stopPropagation()}
+                         style={{padding:'5px 12px',borderRadius:8,background:'#e3f2fd',color:'#1565c0',textDecoration:'none',fontWeight:600,fontSize:12}}>
+                        🔗 ZapSign
+                      </a>
+                    )}
+                    {c.linkContrato && c.linkContrato !== '—' && (
+                      <a href={c.linkContrato} target="_blank" rel="noreferrer"
+                         onClick={e=>e.stopPropagation()}
+                         style={{padding:'5px 12px',borderRadius:8,background:'#f0fafa',color:C.med,textDecoration:'none',fontWeight:600,fontSize:12}}>
+                        📄 Doc
+                      </a>
+                    )}
+                    <span style={{fontSize:18,color:C.muted,transition:'transform 0.2s',transform:isOpen?'rotate(180deg)':'none'}}>▾</span>
+                  </div>
+                </div>
+
+                {/* Detalhe expandido — signatários */}
+                {isOpen && (
+                  <div style={{borderTop:`1px solid ${C.border}`,background:'#fafffe'}}>
+                    {c.erro && (
+                      <div style={{padding:'10px 18px',fontSize:13,color:'#856404',background:'#fff8e1'}}>
+                        ⚠️ {c.erro}
+                      </div>
+                    )}
+                    {c.signatarios.length > 0 ? (
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                        <thead>
+                          <tr style={{background:'#f0fafa'}}>
+                            {['Signatário','E-mail','Status','Data Assinatura',''].map(h=>(
+                              <th key={h} style={{padding:'9px 18px',textAlign:'left',fontSize:11.5,fontWeight:600,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.signatarios.map((s,j) => {
+                            const sb = statusBadge(s.status);
+                            const reenv = reenviando[s.token];
+                            const msg   = msgReenvio[s.token];
+                            return (
+                              <tr key={j} style={{borderBottom:`1px solid ${C.border}`,background:j%2?'#fff':'transparent'}}>
+                                <td style={{padding:'10px 18px',fontWeight:500}}>{s.nome}</td>
+                                <td style={{padding:'10px 18px',color:C.muted,fontSize:12}}>{s.email}</td>
+                                <td style={{padding:'10px 18px'}}>
+                                  <span style={{padding:'2px 10px',borderRadius:20,fontSize:11.5,fontWeight:600,background:sb.bg,color:sb.color}}>{sb.label}</span>
+                                </td>
+                                <td style={{padding:'10px 18px',color:C.muted,fontSize:12}}>{s.dataAssin || '—'}</td>
+                                <td style={{padding:'10px 18px'}}>
+                                  {s.status === 'pending' && s.token && (
+                                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                      <button onClick={()=>reenviar(s.token, s.nome)} disabled={reenv}
+                                        style={{padding:'5px 12px',borderRadius:8,background:reenv?'#ccc':C.dark,color:'#fff',border:'none',cursor:reenv?'not-allowed':'pointer',fontWeight:600,fontSize:12,display:'flex',alignItems:'center',gap:4}}>
+                                        {reenv ? <Spinner size={12}/> : '📧'} {reenv ? 'Enviando…' : 'Reenviar'}
+                                      </button>
+                                      {msg && <span style={{fontSize:12,color:msg.startsWith('✅')?'#1b5e20':'#856404'}}>{msg}</span>}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{padding:'16px 18px',fontSize:13,color:C.muted}}>
+                        {c.erro ? 'Não foi possível carregar os signatários.' : 'Nenhum signatário encontrado.'}
+                      </div>
+                    )}
+                    {c.dataAssin && (
+                      <div style={{padding:'8px 18px',fontSize:12,color:'#1b5e20',background:'#e8f5e9',borderTop:`1px solid ${C.border}`}}>
+                        ✅ Contrato totalmente assinado em {c.dataAssin}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Configuracoes() {
   return (
     <div>
@@ -705,7 +891,7 @@ function Configuracoes() {
           ['Endereço','Rua Guarapuava, nº 837 - Centro - Campo Mourão - PR'],
           ['Telefone','(44) 3017-5823 / (44) 98808-2002'],
           ['Contador Responsável','RENATO GARCIA RAMOS'],
-          ['CRC Resp.','CRC-PR 071339/O-7'],['E-mail','rennato.gr@gmail.com'],
+          ['CRC Resp.','CRC-PR 071339/O-7'],['E-mail','renato.ramos@scfacilita.com.br'],
         ].map(([l,v])=>(
           <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
             <span style={{fontSize:13,color:C.muted,fontWeight:600}}>{l}</span>
@@ -736,9 +922,10 @@ function Configuracoes() {
 //  APP PRINCIPAL
 // ═════════════════════════════════════════════════════════════════════════════
 const VIEWS = [
-  {id:'dashboard',icon:'📊',label:'Dashboard'},
-  {id:'contratos',icon:'📄',label:'Contratos'},
-  {id:'config',   icon:'⚙️', label:'Configurações'},
+  {id:'dashboard',  icon:'📊', label:'Dashboard'},
+  {id:'contratos',  icon:'📄', label:'Contratos'},
+  {id:'assinaturas',icon:'🖊️', label:'Assinaturas'},
+  {id:'config',     icon:'⚙️',  label:'Configurações'},
 ];
 
 function App() {
@@ -761,9 +948,10 @@ function App() {
   }
 
   const renderView = () => {
-    if(view==='dashboard') return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
-    if(view==='contratos') return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
-    if(view==='config')    return <Configuracoes/>;
+    if(view==='dashboard')   return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
+    if(view==='contratos')   return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
+    if(view==='assinaturas') return <Assinaturas key={refreshKey}/>;
+    if(view==='config')      return <Configuracoes/>;
     return null;
   };
 
@@ -790,7 +978,7 @@ function App() {
         }}>➕ Novo Contrato</button>
         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,fontSize:11.5,color:C.muted,paddingLeft:4}}>
           <div style={{fontWeight:600}}>Facilita Contábil</div>
-          <div>v2.0 — Etapa 2</div>
+          <div>v3.0 — Etapa 3</div>
         </div>
       </aside>
 
