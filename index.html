@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Facilita — Contratos</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0fafa;color:#1a2e2c}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media(max-width:700px){
+      .sidebar-desktop{display:none!important}
+      .topbar-mobile{display:flex!important}
+      .main-content{margin-left:0!important}
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ─── API ────────────────────────────────────────────────────────────────────
+const API_URL = 'https://script.google.com/macros/s/AKfycbyvRTOfOyjh44rJ78ijGiTLlmNX_UM6tIeVRGYtKY6aUNQ93xon6xdoxCTVlv2lFHsq/exec';
+
+async function apiFetch(action, params = {}) {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const res = await fetch(`${API_URL}?${qs}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.erro || 'Erro desconhecido');
+  return json.data;
+}
+
+// ─── Paleta ─────────────────────────────────────────────────────────────────
+const C = {
+  dark:'#1B6963', med:'#3E9C95', light:'#4DD9C5',
+  bg:'#f0fafa', card:'#ffffff', text:'#1a2e2c', muted:'#6b8e8b', border:'#c5e1df'
+};
+
+// ─── Logo SVG ────────────────────────────────────────────────────────────────
+function LogoIcon({ size=36 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64">
+      <defs>
+        <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4DD9C5"/>
+          <stop offset="100%" stopColor="#1B6963"/>
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="14" fill="url(#lg)"/>
+      <path d="M18 12 C18 12 28 8 38 18 C48 28 44 40 32 44 C20 48 12 40 16 28 Z" fill="white" opacity="0.92"/>
+      <path d="M46 52 C46 52 36 56 26 46 C16 36 20 24 32 20 C44 16 52 24 48 36 Z" fill="white" opacity="0.40"/>
+      <path d="M20 30 L28 22" stroke="rgba(255,255,255,0.6)" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+function LogoFull() {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <LogoIcon size={38}/>
+      <div style={{lineHeight:1.15}}>
+        <div style={{fontWeight:800,fontSize:17,color:C.dark,letterSpacing:'-0.3px'}}>Facilita</div>
+        <div style={{fontWeight:400,fontSize:10.5,color:C.med,letterSpacing:'0.4px',textTransform:'uppercase'}}>Soluções Contábeis</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function fmtMoeda(v) {
+  const n = parseFloat(v)||0;
+  return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+function badgeStatus(status) {
+  const s = String(status||'').toLowerCase();
+  if(s.includes('ativo'))      return {bg:'#e8f5e9',color:'#1b5e20',label:status};
+  if(s.includes('vence'))      return {bg:'#fff8e1',color:'#856404',label:status};
+  if(s.includes('vencido'))    return {bg:'#fdecea',color:'#b71c1c',label:status};
+  if(s.includes('rescindido')) return {bg:'#f5f5f5',color:'#555',  label:status};
+  return {bg:'#e8f5f4',color:C.dark,label:status||'—'};
+}
+function badgeAssin(status) {
+  const s = String(status||'').toLowerCase();
+  if(s.includes('completo'))              return {bg:'#e8f5e9',color:'#1b5e20',label:status};
+  if(s.includes('aguardando')||s.includes('assinam')) return {bg:'#fff8e1',color:'#856404',label:status};
+  if(!status||status==='')               return {bg:'#f5f5f5',color:'#888',  label:'—'};
+  return {bg:'#e3f2fd',color:'#1565c0',label:status};
+}
+function Badge({text,bg,color}) {
+  return <span style={{display:'inline-block',padding:'2px 10px',borderRadius:20,fontSize:11.5,fontWeight:600,background:bg,color,whiteSpace:'nowrap'}}>{text}</span>;
+}
+function MetricCard({icon,label,value,sub,accent}) {
+  return (
+    <div style={{background:C.card,borderRadius:16,padding:'20px 22px',boxShadow:'0 1px 4px rgba(27,105,99,0.08)',border:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:4}}>
+      <div style={{fontSize:22}}>{icon}</div>
+      <div style={{fontSize:26,fontWeight:800,color:accent||C.dark}}>{value}</div>
+      <div style={{fontSize:13,fontWeight:600,color:C.text}}>{label}</div>
+      {sub&&<div style={{fontSize:11.5,color:C.muted}}>{sub}</div>}
+    </div>
+  );
+}
+function Spinner() {
+  return (
+    <div style={{display:'flex',justifyContent:'center',alignItems:'center',padding:60}}>
+      <div style={{width:36,height:36,borderRadius:'50%',border:`4px solid ${C.border}`,borderTopColor:C.med,animation:'spin 0.8s linear infinite'}}/>
+    </div>
+  );
+}
+function ErrMsg({msg,onRetry}) {
+  return (
+    <div style={{background:'#fdecea',border:'1px solid #f5c6cb',borderRadius:12,padding:'18px 22px',color:'#721c24',margin:'24px 0'}}>
+      <strong>⚠️ Erro ao carregar dados</strong>
+      <p style={{marginTop:6,fontSize:13}}>{msg}</p>
+      {onRetry&&<button onClick={onRetry} style={{marginTop:12,padding:'7px 18px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600}}>Tentar novamente</button>}
+    </div>
+  );
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+function Dashboard() {
+  const [data,setData]   = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState(null);
+
+  const load = useCallback(async()=>{
+    setLoading(true);setError(null);
+    try{ const d=await apiFetch('dashboard'); setData(d); }
+    catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  },[]);
+  useEffect(()=>{ load(); },[]);
+
+  if(loading) return <Spinner/>;
+  if(error)   return <ErrMsg msg={error} onRetry={load}/>;
+  if(!data)   return null;
+
+  return (
+    <div>
+      <h2 style={{fontSize:20,fontWeight:700,color:C.dark,marginBottom:20}}>Painel de Controle</h2>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:14,marginBottom:28}}>
+        <MetricCard icon="👥" label="Clientes Ativos"     value={data.ativos}            accent={C.dark}/>
+        <MetricCard icon="💰" label="Receita Mensal"      value={fmtMoeda(data.mrr)}     accent="#1b5e20" sub="MRR"/>
+        <MetricCard icon="⚠️" label="Vencendo (60d)"     value={data.vencendo}          accent="#856404"/>
+        <MetricCard icon="🔴" label="Vencidos"            value={data.vencidos}          accent="#b71c1c"/>
+        <MetricCard icon="🖊️" label="Assinados (ZapSign)" value={data.assinados}         accent={C.med}/>
+        <MetricCard icon="📄" label="Total de Contratos"  value={data.total}             accent={C.dark}/>
+      </div>
+      <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.07)',overflow:'hidden'}}>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,background:C.dark}}>
+          <h3 style={{color:'#fff',fontSize:14,fontWeight:600}}>📋 Últimos Contratos</h3>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'#f0fafa'}}>
+                {['Nº','Cliente','Vencimento','Honorários','Status','Assinatura'].map(h=>(
+                  <th key={h} style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:12,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {!(data.recentes||[]).length
+                ? <tr><td colSpan={6} style={{padding:30,textAlign:'center',color:C.muted}}>Nenhum contrato cadastrado</td></tr>
+                : (data.recentes||[]).map((c,i)=>{
+                    const bs=badgeStatus(c.status), ba=badgeAssin(c.statusAssin);
+                    return (
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i%2?'#fafffe':'#fff'}}>
+                        <td style={{padding:'10px 14px',fontWeight:600,color:C.dark}}>{c.numero}</td>
+                        <td style={{padding:'10px 14px',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.cliente}</td>
+                        <td style={{padding:'10px 14px',color:C.muted}}>{c.vencimento}</td>
+                        <td style={{padding:'10px 14px',fontWeight:600,color:'#1b5e20'}}>{fmtMoeda(c.honorario)}</td>
+                        <td style={{padding:'10px 14px'}}><Badge text={bs.label} bg={bs.bg} color={bs.color}/></td>
+                        <td style={{padding:'10px 14px'}}><Badge text={ba.label} bg={ba.bg} color={ba.color}/></td>
+                      </tr>
+                    );
+                  })
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal de detalhe ────────────────────────────────────────────────────────
+function DetalheModal({contrato:c,onClose}) {
+  const bs=badgeStatus(c.status), ba=badgeAssin(c.statusAssin);
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:560,boxShadow:'0 8px 40px rgba(27,105,99,0.18)',overflow:'hidden',maxHeight:'90vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:C.dark,padding:'16px 22px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div>
+            <div style={{color:'rgba(255,255,255,0.7)',fontSize:12,fontWeight:500}}>{c.numero}</div>
+            <div style={{color:'#fff',fontSize:17,fontWeight:700}}>{c.cliente}</div>
+          </div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:20,lineHeight:'32px',textAlign:'center'}}>×</button>
+        </div>
+        <div style={{overflowY:'auto',flex:1}}>
+          <div style={{padding:'20px 22px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px'}}>
+            {[
+              ['CNPJ',c.cnpj],
+              ['Representante',c.representante+(c.cargo?` (${c.cargo})`:'')],
+              ['Telefone',c.telefone],
+              ['E-mail',c.email],
+              ['Honorários',fmtMoeda(c.honorario)],
+              ['Dia Vencimento',c.diaVcto?`Dia ${c.diaVcto}`:'—'],
+              ['Início',c.inicio],
+              ['Vencimento',c.vencimento],
+              ['Funcionários',c.funcionarios],
+              ['NFs/mês',c.nfsMes],
+              ['Lançamentos',c.lancamentos],
+              ['Último Aditivo',c.ultAditivo||'—'],
+            ].map(([lbl,val])=>(
+              <div key={lbl}>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.4px'}}>{lbl}</div>
+                <div style={{fontSize:13.5,color:C.text,marginTop:2,wordBreak:'break-word'}}>{val||'—'}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{padding:'0 22px 16px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <Badge text={bs.label} bg={bs.bg} color={bs.color}/>
+            <Badge text={ba.label} bg={ba.bg} color={ba.color}/>
+            {c.dataAssin&&<span style={{fontSize:11.5,color:C.muted}}>Assinado em: {c.dataAssin}</span>}
+          </div>
+          {c.obs&&<div style={{margin:'0 22px 16px',background:'#f0fafa',borderRadius:10,padding:'10px 14px',fontSize:13,color:C.muted}}>📝 {c.obs}</div>}
+        </div>
+        <div style={{padding:'12px 22px',borderTop:`1px solid ${C.border}`,display:'flex',gap:10,justifyContent:'flex-end',flexShrink:0}}>
+          {c.linkContrato&&c.linkContrato!=='—'&&(
+            <a href={c.linkContrato} target="_blank" rel="noreferrer" style={{padding:'8px 18px',borderRadius:8,background:C.med,color:'#fff',textDecoration:'none',fontWeight:600,fontSize:13}}>📄 Abrir Contrato</a>
+          )}
+          <button onClick={onClose} style={{padding:'8px 18px',borderRadius:8,background:'#f0f0f0',border:'none',cursor:'pointer',fontWeight:600,fontSize:13,color:C.text}}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Contratos ───────────────────────────────────────────────────────────────
+function Contratos() {
+  const [lista,setLista]   = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [error,setError]   = useState(null);
+  const [busca,setBusca]   = useState('');
+  const [filtro,setFiltro] = useState('todos');
+  const [detalhe,setDetalhe] = useState(null);
+
+  const load = useCallback(async()=>{
+    setLoading(true);setError(null);
+    try{ const d=await apiFetch('contratos'); setLista(d); }
+    catch(e){ setError(e.message); }
+    finally{ setLoading(false); }
+  },[]);
+  useEffect(()=>{ load(); },[]);
+
+  const filtrados = lista.filter(c=>{
+    const s=String(c.status||'').toLowerCase();
+    const ok = filtro==='todos'?true:filtro==='ativos'?s.includes('ativo'):filtro==='vencendo'?s.includes('vence'):filtro==='vencidos'?s.includes('vencido'):s.includes('rescindido');
+    const t=busca.toLowerCase();
+    const okb=!t||String(c.cliente||'').toLowerCase().includes(t)||String(c.cnpj||'').includes(t)||String(c.numero||'').toLowerCase().includes(t)||String(c.email||'').toLowerCase().includes(t);
+    return ok&&okb;
+  });
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>Contratos</h2>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar cliente, CNPJ…"
+            style={{padding:'8px 14px',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,outline:'none',minWidth:220}}/>
+          <select value={filtro} onChange={e=>setFiltro(e.target.value)}
+            style={{padding:'8px 12px',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:'#fff'}}>
+            <option value="todos">Todos os status</option>
+            <option value="ativos">🟢 Ativos</option>
+            <option value="vencendo">🟡 Vencendo</option>
+            <option value="vencidos">🔴 Vencidos</option>
+            <option value="rescindidos">⚫ Rescindidos</option>
+          </select>
+          <button onClick={load} style={{padding:'8px 14px',borderRadius:10,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:13}}>🔄 Atualizar</button>
+        </div>
+      </div>
+      {loading&&<Spinner/>}
+      {!loading&&error&&<ErrMsg msg={error} onRetry={load}/>}
+      {!loading&&!error&&(
+        <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.07)',overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{background:C.dark}}>
+                  {['Nº','Cliente','CNPJ','E-mail','Honorários','Vencimento','Status','Assinatura',''].map(h=>(
+                    <th key={h} style={{padding:'11px 13px',textAlign:'left',fontWeight:600,color:'#fff',fontSize:12}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {!filtrados.length
+                  ? <tr><td colSpan={9} style={{padding:30,textAlign:'center',color:C.muted}}>Nenhum contrato encontrado</td></tr>
+                  : filtrados.map((c,i)=>{
+                      const bs=badgeStatus(c.status), ba=badgeAssin(c.statusAssin);
+                      return (
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i%2?'#fafffe':'#fff',cursor:'pointer'}} onClick={()=>setDetalhe(c)}>
+                          <td style={{padding:'10px 13px',fontWeight:700,color:C.dark}}>{c.numero}</td>
+                          <td style={{padding:'10px 13px',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:500}}>{c.cliente}</td>
+                          <td style={{padding:'10px 13px',color:C.muted,fontFamily:'monospace',fontSize:12}}>{c.cnpj}</td>
+                          <td style={{padding:'10px 13px',color:C.muted,fontSize:12}}>{c.email}</td>
+                          <td style={{padding:'10px 13px',fontWeight:600,color:'#1b5e20'}}>{fmtMoeda(c.honorario)}</td>
+                          <td style={{padding:'10px 13px',color:C.muted}}>{c.vencimento}</td>
+                          <td style={{padding:'10px 13px'}}><Badge text={bs.label} bg={bs.bg} color={bs.color}/></td>
+                          <td style={{padding:'10px 13px'}}><Badge text={ba.label} bg={ba.bg} color={ba.color}/></td>
+                          <td style={{padding:'10px 13px'}}>
+                            {c.linkContrato&&c.linkContrato!=='—'&&(
+                              <a href={c.linkContrato} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{color:C.med,textDecoration:'none',fontWeight:600,fontSize:12}}>📄 Doc</a>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                }
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:'10px 16px',borderTop:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
+            {filtrados.length} contrato{filtrados.length!==1?'s':''} exibido{filtrados.length!==1?'s':''}
+            {(busca||filtro!=='todos')?` (filtrado de ${lista.length})`:''}
+          </div>
+        </div>
+      )}
+      {detalhe&&<DetalheModal contrato={detalhe} onClose={()=>setDetalhe(null)}/>}
+    </div>
+  );
+}
+
+// ─── Configurações ───────────────────────────────────────────────────────────
+function Configuracoes() {
+  return (
+    <div>
+      <h2 style={{fontSize:20,fontWeight:700,color:C.dark,marginBottom:20}}>Configurações</h2>
+      <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,padding:'24px',maxWidth:560}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginBottom:16}}>Informações do Escritório</h3>
+        {[
+          ['Escritório','FACILITA SOLUÇÕES CONTÁBEIS LTDA'],
+          ['CNPJ','21.966.306/0001-77'],
+          ['CRC','CRC-PR 008811/O-7'],
+          ['Endereço','Rua Guarapuava, nº 837 - Centro - Campo Mourão - PR'],
+          ['Telefone','(44) 3017-5823 / (44) 98808-2002'],
+          ['Contador Responsável','RENATO GARCIA RAMOS'],
+          ['CRC Resp.','CRC-PR 071339/O-7'],
+          ['E-mail','rennato.gr@gmail.com'],
+        ].map(([l,v])=>(
+          <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontSize:13,color:C.muted,fontWeight:600}}>{l}</span>
+            <span style={{fontSize:13,color:C.text,textAlign:'right',maxWidth:'60%'}}>{v}</span>
+          </div>
+        ))}
+        <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginTop:24,marginBottom:16}}>Testemunhas do Contrato</h3>
+        {[
+          ['Testemunha 1','Alexandre Dionizio Alves'],
+          ['E-mail','alexandre.alves@scfacilita.com.br'],
+          ['Testemunha 2','Rafael Alencar de Oliveira'],
+          ['E-mail','rafael.oliveira@scfacilita.com.br'],
+        ].map(([l,v],i)=>(
+          <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontSize:13,color:C.muted,fontWeight:600}}>{l}</span>
+            <span style={{fontSize:13,color:C.text}}>{v}</span>
+          </div>
+        ))}
+        <div style={{marginTop:20,padding:14,background:'#f0fafa',borderRadius:10,fontSize:12.5,color:C.muted}}>
+          ℹ️ Para alterar estas informações, edite o arquivo <code>Code.gs</code> no Google Apps Script e reimplante o Web App.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── App Principal ───────────────────────────────────────────────────────────
+const VIEWS = [
+  {id:'dashboard',icon:'📊',label:'Dashboard'},
+  {id:'contratos',icon:'📄',label:'Contratos'},
+  {id:'config',   icon:'⚙️', label:'Configurações'},
+];
+
+function App() {
+  const [view,setView]       = useState('dashboard');
+  const [sideOpen,setSideOpen] = useState(false);
+
+  function navStyle(v) {
+    return {
+      display:'flex',alignItems:'center',gap:10,padding:'10px 16px',
+      borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:500,
+      background: view===v.id?'#e8f5f4':'transparent',
+      color:      view===v.id?C.dark:C.muted,
+      border:     view===v.id?`1px solid ${C.border}`:'1px solid transparent',
+      transition:'all 0.15s',
+    };
+  }
+
+  const renderView = () => {
+    if(view==='dashboard') return <Dashboard/>;
+    if(view==='contratos') return <Contratos/>;
+    if(view==='config')    return <Configuracoes/>;
+    return null;
+  };
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh',background:C.bg}}>
+      {/* Sidebar desktop */}
+      <aside className="sidebar-desktop" style={{
+        width:220,background:'#fff',borderRight:`1px solid ${C.border}`,
+        display:'flex',flexDirection:'column',padding:'20px 12px',
+        position:'fixed',top:0,bottom:0,left:0,zIndex:100,overflowY:'auto'
+      }}>
+        <div style={{marginBottom:28,paddingLeft:4}}><LogoFull/></div>
+        <nav style={{display:'flex',flexDirection:'column',gap:4,flex:1}}>
+          {VIEWS.map(v=>(
+            <div key={v.id} style={navStyle(v)} onClick={()=>setView(v.id)}>
+              <span>{v.icon}</span> {v.label}
+            </div>
+          ))}
+        </nav>
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,fontSize:11.5,color:C.muted,paddingLeft:4}}>
+          <div style={{fontWeight:600}}>Facilita Contábil</div>
+          <div>v1.0 — Etapa 1</div>
+        </div>
+      </aside>
+
+      {/* Sidebar mobile overlay */}
+      {sideOpen&&(
+        <div style={{position:'fixed',inset:0,zIndex:200}}>
+          <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.35)'}} onClick={()=>setSideOpen(false)}/>
+          <aside style={{position:'absolute',top:0,bottom:0,left:0,width:230,background:'#fff',padding:'20px 12px',display:'flex',flexDirection:'column',overflowY:'auto'}}>
+            <div style={{marginBottom:28,paddingLeft:4}}><LogoFull/></div>
+            <nav style={{display:'flex',flexDirection:'column',gap:4,flex:1}}>
+              {VIEWS.map(v=>(
+                <div key={v.id} style={navStyle(v)} onClick={()=>{setView(v.id);setSideOpen(false);}}>
+                  <span>{v.icon}</span> {v.label}
+                </div>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
+
+      {/* Conteúdo */}
+      <main className="main-content" style={{flex:1,marginLeft:220,minHeight:'100vh',display:'flex',flexDirection:'column'}}>
+        {/* Top bar mobile */}
+        <div className="topbar-mobile" style={{display:'none',padding:'12px 16px',background:'#fff',borderBottom:`1px solid ${C.border}`,alignItems:'center',gap:12}}>
+          <button onClick={()=>setSideOpen(true)} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:C.dark}}>☰</button>
+          <LogoFull/>
+        </div>
+        <div style={{flex:1,padding:'28px 28px 40px',maxWidth:1100}}>
+          {renderView()}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
