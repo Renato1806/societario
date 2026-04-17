@@ -42,6 +42,53 @@ async function buscarCNPJDireto(cnpj) {
   return res.json();
 }
 
+// ── Validação e máscara de CPF ────────────────────────────────────────────────
+function validarCPF(cpf) {
+  const c = cpf.replace(/\D/g,'');
+  if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+  let s = 0;
+  for (let i = 0; i < 9; i++) s += parseInt(c[i]) * (10 - i);
+  let r = (s * 10) % 11; if (r === 10 || r === 11) r = 0;
+  if (r !== parseInt(c[9])) return false;
+  s = 0;
+  for (let i = 0; i < 10; i++) s += parseInt(c[i]) * (11 - i);
+  r = (s * 10) % 11; if (r === 10 || r === 11) r = 0;
+  return r === parseInt(c[10]);
+}
+function maskCPF(v) {
+  return v.replace(/\D/g,'').substring(0,11)
+    .replace(/(\d{3})(\d)/,'$1.$2')
+    .replace(/(\d{3})(\d)/,'$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/,'$1-$2');
+}
+
+// ── CEP: máscara + busca BrasilAPI ────────────────────────────────────────────
+function maskCEP(v) {
+  return v.replace(/\D/g,'').substring(0,8).replace(/(\d{5})(\d)/,'$1-$2');
+}
+async function buscarCEP(cep) {
+  const c = cep.replace(/\D/g,'');
+  if (c.length !== 8) throw new Error('CEP inválido');
+  const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${c}`);
+  if (!res.ok) throw new Error('CEP não encontrado');
+  return res.json();
+  // Retorna: { cep, state, city, neighborhood, street, location }
+}
+
+// ── CNAE: busca descrição pela BrasilAPI ─────────────────────────────────────
+async function buscarCNAE(codigo) {
+  const d = codigo.replace(/[^\d]/g,'');
+  if (d.length < 4) throw new Error('Código muito curto');
+  // Formata: 1234567 → 1234-5/67
+  const fmt = d.length >= 7
+    ? `${d.substring(0,4)}-${d[4]}/${d.substring(5,7)}`
+    : d;
+  const res = await fetch(`https://brasilapi.com.br/api/cnae/v1/${encodeURIComponent(fmt)}`);
+  if (!res.ok) throw new Error('CNAE não encontrado');
+  return res.json();
+  // Retorna: { id, descricao, ... }
+}
+
 const C = {
   dark:'#1B6963', med:'#3E9C95', light:'#4DD9C5',
   bg:'#f0fafa', card:'#ffffff', text:'#1a2e2c', muted:'#6b8e8b', border:'#c5e1df'
@@ -885,7 +932,7 @@ function Assinaturas() {
 
 // ── Wizard: Novo Processo Societário ─────────────────────────────────────────
 const SOC_FORM_INICIAL = {
-  tipo:'Abertura', razao:'', fantasia:'', cnpj:'', telefone:'', email:'',
+  tipo:'Abertura', razao:'', fantasia:'', cnpj:'', cep:'', telefone:'', email:'',
   socios:[ {nome:'', cpf:'', participacao:'', endereco:''} ],
   endereco:'', capital:'', regime:'Simples Nacional',
   cnaeCod:'', cnaeDesc:'', cnaeSec:'', objeto:'',
@@ -893,15 +940,43 @@ const SOC_FORM_INICIAL = {
   vlServico:'', stPgto:'Pendente', honMensal:'', obs:'',
 };
 
+// Chaves de campos alteráveis (Alteração Contratual)
+const CAMPOS_ALT_INICIAL = {
+  razao:false, fantasia:false, endereco:false, telefone:false, email:false,
+  socios:false, capital:false, regime:false, cnae:false, cnaeSec:false,
+  objeto:false, alvara:false,
+};
+const CAMPOS_ALT_LABELS = {
+  razao:'Razão Social', fantasia:'Nome Fantasia', endereco:'Endereço',
+  telefone:'Telefone', email:'E-mail', socios:'Quadro de Sócios',
+  capital:'Capital Social', regime:'Regime Tributário', cnae:'CNAE Principal',
+  cnaeSec:'CNAE Secundário', objeto:'Objeto Social', alvara:'Alvará/IM',
+};
+
 function NovoSocietarioWizard({ onClose, onSalvo }) {
-  const [step, setStep]     = useState(1);
-  const [form, setForm]     = useState(JSON.parse(JSON.stringify(SOC_FORM_INICIAL)));
+  const [step, setStep]         = useState(1);
+  const [form, setForm]         = useState(JSON.parse(JSON.stringify(SOC_FORM_INICIAL)));
   const [salvando, setSalvando] = useState(false);
   const [resultado, setResultado] = useState(null);
-  const [erro, setErro]     = useState('');
+  const [erro, setErro]         = useState('');
   const [cnpjLoading, setCnpjLoading] = useState(false);
+  const [cepLoading, setCepLoading]   = useState(false);
+  const [cepErro, setCepErro]         = useState('');
+  const [cnaeLoading, setCnaeLoading] = useState(false);
+  const [cnaeErro, setCnaeErro]       = useState('');
+
+  // ── Alteração: dados atuais (da Receita) e checkboxes de campos ───────────
+  const [dadosAtual, setDadosAtual] = useState(null);
+  const [camposAlt, setCamposAlt]   = useState({...CAMPOS_ALT_INICIAL});
 
   function set(k,v){ setForm(f=>({...f,[k]:v})); }
+  function toggleAlt(k){ setCamposAlt(ca=>({...ca,[k]:!ca[k]})); }
+  // Campo está sendo alterado?
+  const isAlt = (k) => form.tipo==='Alteração' && dadosAtual && camposAlt[k];
+  // Valor atual da empresa (da Receita)
+  const valAtual = (k) => dadosAtual ? (dadosAtual[k]||'') : '';
+  // Campo bloqueado (Alteração sem essa chave marcada)?
+  const bloq = (k) => form.tipo==='Alteração' && dadosAtual && !camposAlt[k];
 
   function maskCNPJ(v){
     return v.replace(/\D/g,'').substring(0,14)
@@ -909,7 +984,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       .replace(/(\d{3})(\d)/,'$1/$2').replace(/(\d{4})(\d)/,'$1-$2');
   }
 
-  async function buscarCNPJ() {
+  async function buscarCNPJSoc() {
     const digits = form.cnpj.replace(/\D/g,'');
     if(digits.length!==14) return;
     setCnpjLoading(true);
@@ -922,27 +997,68 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         participacao: s.percentual_capital_social ? s.percentual_capital_social+'%' : '',
         endereco: '',
       }));
-      setForm(f=>({...f,
+
+      const dadosFetch = {
         razao:    cap(d.razao_social||''),
         fantasia: cap(d.nome_fantasia||''),
-        telefone: d.ddd_telefone_1?`(${d.ddd_telefone_1.substring(0,2)}) ${d.ddd_telefone_1.substring(2)}`:f.telefone,
-        email:    (d.email||'').toLowerCase()||f.email,
-        endereco: cap(`${d.descricao_tipo_de_logradouro||''} ${d.logradouro||''}, ${d.numero||'s/n'} - ${d.bairro||''} - ${d.municipio||''} - ${d.uf||''}`),
+        telefone: d.ddd_telefone_1?`(${d.ddd_telefone_1.substring(0,2)}) ${d.ddd_telefone_1.substring(2).trim()}`:'',
+        email:    (d.email||'').toLowerCase(),
+        endereco: cap([d.descricao_tipo_de_logradouro,d.logradouro,d.numero?d.numero:'s/n'].filter(Boolean).join(' ')
+                    + (d.bairro?` - ${cap(d.bairro)}`:'')
+                    + (d.municipio?` - ${cap(d.municipio)}`:'')
+                    + (d.uf?` - ${d.uf}`:'')),
         cnaeCod:  String(d.cnae_fiscal||''),
         cnaeDesc: cap(d.cnae_fiscal_descricao||''),
-        regime:   d.opcao_pelo_simples?'Simples Nacional':f.regime,
-        socios:   socios.length>0?socios:f.socios,
-      }));
+        regime:   d.opcao_pelo_mei?'MEI':d.opcao_pelo_simples?'Simples Nacional':'',
+        capital:  '',
+        cnaeSec:  '',
+        objeto:   '',
+        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endereco:''}],
+      };
+
+      if(form.tipo==='Alteração') {
+        setDadosAtual(dadosFetch);
+        setCamposAlt({...CAMPOS_ALT_INICIAL}); // reseta checkboxes
+      }
+      setForm(f=>({...f, ...dadosFetch, socios: dadosFetch.socios}));
     } catch(e){}
     finally{ setCnpjLoading(false); }
   }
 
-  // Sócios dinâmicos
+  async function buscarCEPSoc() {
+    const c = (form.cep||'').replace(/\D/g,'');
+    if(c.length!==8) return;
+    setCepLoading(true); setCepErro('');
+    try {
+      const d = await buscarCEP(c);
+      if(d.street) {
+        const partes = [cap(d.street||''), cap(d.neighborhood||''), cap(d.city||'')].filter(Boolean);
+        const end = partes.join(', ') + (d.state ? ' - ' + d.state : '');
+        set('endereco', end);
+      }
+    } catch(e){ setCepErro('CEP não encontrado'); }
+    finally{ setCepLoading(false); }
+  }
+
+  async function buscarCNAESoc() {
+    setCnaeErro('');
+    const codigo = form.cnaeCod;
+    if(!codigo) return;
+    setCnaeLoading(true);
+    try {
+      const d = await buscarCNAE(codigo);
+      if(d && d.descricao) {
+        set('cnaeDesc', cap(d.descricao));
+      } else { setCnaeErro('CNAE não encontrado'); }
+    } catch(e){ setCnaeErro('CNAE não encontrado'); }
+    finally{ setCnaeLoading(false); }
+  }
+
+  // ── Sócios dinâmicos ──────────────────────────────────────────────────────
   function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endereco:''}]})); }
   function rmSocio(i){ setForm(f=>({...f, socios:f.socios.filter((_,j)=>j!==i)})); }
   function setSocio(i,k,v){ setForm(f=>{ const s=[...f.socios]; s[i]={...s[i],[k]:v}; return {...f,socios:s}; }); }
 
-  // Formata sócios para salvar
   function sociosTexto(){
     return form.socios.map(s=>`${s.nome}${s.cpf?` - CPF ${s.cpf}`:''}${s.participacao?` - ${s.participacao}`:''}${s.endereco?`\n   Endereço: ${s.endereco}`:''}`).join('\n');
   }
@@ -951,16 +1067,24 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     setSalvando(true); setErro('');
     try {
       const dados = { ...form, socios: sociosTexto() };
-      const data  = await apiFetch('salvarSocietario',{ dados: JSON.stringify(dados) });
+      if(form.tipo==='Alteração' && dadosAtual) {
+        dados.camposAlterados = Object.keys(camposAlt).filter(k=>camposAlt[k]).join(',');
+      }
+      const data = await apiFetch('salvarSocietario',{ dados: JSON.stringify(dados) });
       setResultado(data);
       onSalvo && onSalvo();
     } catch(e){ setErro(e.message); }
     finally{ setSalvando(false); }
   }
 
-  // Gera PDF / ficha para WhatsApp
+  // ── Gera ficha para WhatsApp ──────────────────────────────────────────────
   function gerarFicha(){
     const s = form;
+    const isAlteracao = s.tipo==='Alteração' && dadosAtual;
+    const camposAlterados = isAlteracao
+      ? Object.entries(camposAlt).filter(([,v])=>v)
+      : [];
+
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
     <title>Ficha Societária</title>
     <style>
@@ -968,23 +1092,46 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       h2{color:#1B6963;border-bottom:2px solid #1B6963;padding-bottom:6px;margin-bottom:16px}
       table{width:100%;border-collapse:collapse;margin-bottom:16px}
       td{padding:6px 10px;border:1px solid #ccc;vertical-align:top}
+      th{background:#1B6963;color:#fff;padding:6px 10px;text-align:left}
       .lbl{background:#f0fafa;font-weight:bold;width:160px;color:#1B6963}
       .sec{background:#1B6963;color:#fff;font-weight:bold;font-size:13px;padding:6px 10px}
+      .atual{color:#b71c1c}
+      .novo{color:#1b5e20;font-weight:bold}
       .ck{display:inline-block;width:14px;height:14px;border:1px solid #555;margin-right:4px;vertical-align:middle}
       @media print{button{display:none}}
     </style></head><body>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <div>
-        <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
-        <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
-      </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
+      <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
     </div>
-    <h2>${s.tipo === 'Abertura' ? '📋 Ficha de Abertura de Empresa' : '📋 Ficha de Alteração Contratual'}</h2>
+    <h2>${s.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'}</h2>
+
+    ${isAlteracao && camposAlterados.length>0 ? `
+    <table>
+      <tr><td class="sec" colspan="3">🔄 Resumo das Alterações</td></tr>
+      <tr style="background:#f5f5f5">
+        <th style="width:160px">Campo</th><th>Situação Atual</th><th>Nova Situação</th>
+      </tr>
+      ${camposAlterados.map(([k])=>{
+        const valA = k==='cnae'
+          ? `${dadosAtual.cnaeCod||''} — ${dadosAtual.cnaeDesc||''}`
+          : (dadosAtual[k]||'—');
+        const valN = k==='cnae'
+          ? `${s.cnaeCod||''} — ${s.cnaeDesc||''}`
+          : (s[k]||'—');
+        return `<tr>
+          <td class="lbl">${CAMPOS_ALT_LABELS[k]||k}</td>
+          <td class="atual">${valA}</td>
+          <td class="novo">${valN}</td>
+        </tr>`;
+      }).join('')}
+    </table>` : ''}
+
     <table>
       <tr><td class="sec" colspan="2">Dados da Empresa</td></tr>
       <tr><td class="lbl">Tipo</td><td>${s.tipo}</td></tr>
       <tr><td class="lbl">Razão Social</td><td>${s.razao}</td></tr>
-      <tr><td class="lbl">Nome Fantasia</td><td>${s.fantasia||'—'}</td></tr>
+      ${s.fantasia?`<tr><td class="lbl">Nome Fantasia</td><td>${s.fantasia}</td></tr>`:''}
       ${s.cnpj?`<tr><td class="lbl">CNPJ</td><td>${s.cnpj}</td></tr>`:''}
       <tr><td class="lbl">Telefone</td><td>${s.telefone||'—'}</td></tr>
       <tr><td class="lbl">E-mail</td><td>${s.email||'—'}</td></tr>
@@ -994,7 +1141,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       <tr><td class="sec" colspan="2">Sócios</td></tr>
       ${form.socios.map((sc,i)=>`
         <tr><td class="lbl">Sócio ${i+1}</td><td>
-          ${sc.nome}${sc.cpf?` &nbsp;·&nbsp; CPF: ${sc.cpf}`:''}${sc.participacao?` &nbsp;·&nbsp; ${sc.participacao}`:''}
+          ${sc.nome||'—'}${sc.cpf?` &nbsp;·&nbsp; CPF: ${sc.cpf}`:''}${sc.participacao?` &nbsp;·&nbsp; ${sc.participacao}`:''}
           ${sc.endereco?`<br><small>${sc.endereco}</small>`:''}
         </td></tr>`).join('')}
     </table>
@@ -1021,11 +1168,11 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </div>
     <br><button onclick="window.print()" style="padding:10px 24px;background:#1B6963;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold">🖨️ Imprimir / Salvar PDF</button>
     </body></html>`;
-    const w = window.open('','_blank','width=800,height=900');
-    w.document.write(html);
-    w.document.close();
+    const w = window.open('','_blank','width=820,height=900');
+    w.document.write(html); w.document.close();
   }
 
+  // ── Tela de sucesso ────────────────────────────────────────────────────────
   if(resultado){
     return (
       <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
@@ -1045,87 +1192,135 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   }
 
   const STEPS = ['Identificação','Dados Técnicos','Financeiro'];
-  const canNext1 = form.razao && form.socios[0]?.nome;
+  const canNext1 = form.razao && (form.tipo==='Alteração' || form.socios[0]?.nome);
   const canNext2 = form.capital && form.regime;
 
+  // ── Step 1: Identificação ─────────────────────────────────────────────────
   const step1jsx = (
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      {/* Tipo + CNPJ */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <Field label="Tipo" required>
-          <Sel value={form.tipo} onChange={v=>set('tipo',v)}
+          <Sel value={form.tipo}
+            onChange={v=>{ set('tipo',v); setDadosAtual(null); setCamposAlt({...CAMPOS_ALT_INICIAL}); }}
             options={[{value:'Abertura',label:'Abertura de Empresa'},{value:'Alteração',label:'Alteração Contratual'}]}/>
         </Field>
-        {form.tipo==='Alteração' && (
-          <Field label="CNPJ">
-            <div style={{display:'flex',gap:6}}>
-              <Inp value={form.cnpj} onChange={v=>set('cnpj',maskCNPJ(v))} placeholder="00.000.000/0000-00"/>
-              <button onClick={buscarCNPJ} disabled={cnpjLoading}
-                style={{padding:'0 12px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:12,whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
-                {cnpjLoading?<Spinner size={14}/>:'🔍'}
-              </button>
-            </div>
-          </Field>
-        )}
+        <Field label="CNPJ" hint={form.tipo==='Abertura'?'Opcional — auto-preenche dados':'Obrigatório — busca dados atuais'}>
+          <div style={{display:'flex',gap:6}}>
+            <Inp value={form.cnpj} onChange={v=>set('cnpj',maskCNPJ(v))} placeholder="00.000.000/0000-00"/>
+            <button onClick={buscarCNPJSoc} disabled={cnpjLoading}
+              style={{padding:'0 12px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:13,whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:4}}>
+              {cnpjLoading?<Spinner size={14}/>:'🔍'}
+            </button>
+          </div>
+        </Field>
       </div>
+
+      {/* Painel de seleção de campos a alterar (só para Alteração após busca) */}
+      {form.tipo==='Alteração' && dadosAtual && (
+        <div style={{background:'#fff8e1',border:'1px solid #ffe082',borderRadius:12,padding:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:'#856404',marginBottom:10}}>
+            🔄 Selecione o que será alterado
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+            {Object.entries(CAMPOS_ALT_LABELS).map(([k,l])=>(
+              <label key={k} style={{display:'flex',alignItems:'center',gap:6,fontSize:13,cursor:'pointer',padding:'5px 8px',borderRadius:8,background:camposAlt[k]?'#e8f5e9':'transparent',border:camposAlt[k]?'1px solid #a5d6a7':'1px solid transparent'}}>
+                <input type="checkbox" checked={camposAlt[k]} onChange={()=>toggleAlt(k)} style={{width:14,height:14,cursor:'pointer',accentColor:C.dark}}/>
+                {l}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {form.tipo==='Alteração' && !dadosAtual && (
+        <div style={{background:'#e3f2fd',border:'1px solid #90caf9',borderRadius:10,padding:'10px 14px',fontSize:13,color:'#1565c0'}}>
+          ℹ️ Digite o CNPJ e clique em 🔍 para buscar os dados atuais da empresa
+        </div>
+      )}
+
+      {/* Dados básicos */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <Field label="Razão Social" required>
-          <Inp value={form.razao} onChange={v=>set('razao',v)} placeholder="Nome empresarial"/>
+        <Field label="Razão Social" required hint={isAlt('razao')?`Atual: ${valAtual('razao')}`:''}>
+          <Inp value={form.razao} onChange={v=>set('razao',v)} placeholder="Nome empresarial" disabled={bloq('razao')}/>
         </Field>
-        <Field label="Nome Fantasia">
-          <Inp value={form.fantasia} onChange={v=>set('fantasia',v)} placeholder="Nome comercial"/>
+        <Field label="Nome Fantasia" hint={isAlt('fantasia')?`Atual: ${valAtual('fantasia')}`:''}>
+          <Inp value={form.fantasia} onChange={v=>set('fantasia',v)} placeholder="Nome comercial" disabled={bloq('fantasia')}/>
         </Field>
-        <Field label="Telefone">
-          <Inp value={form.telefone} onChange={v=>set('telefone',v)} placeholder="(44) 99999-9999"/>
+        <Field label="Telefone" hint={isAlt('telefone')?`Atual: ${valAtual('telefone')}`:''}>
+          <Inp value={form.telefone} onChange={v=>set('telefone',v)} placeholder="(44) 99999-9999" disabled={bloq('telefone')}/>
         </Field>
-        <Field label="E-mail">
-          <Inp value={form.email} onChange={v=>set('email',v)} placeholder="email@empresa.com.br" type="email"/>
+        <Field label="E-mail" hint={isAlt('email')?`Atual: ${valAtual('email')}`:''}>
+          <Inp value={form.email} onChange={v=>set('email',v)} placeholder="email@empresa.com.br" type="email" disabled={bloq('email')}/>
         </Field>
       </div>
-      <Field label="Endereço da Empresa">
-        <Inp value={form.endereco} onChange={v=>set('endereco',v)} placeholder="Rua, número, bairro, cidade - UF"/>
-      </Field>
+
+      {/* CEP + Endereço */}
+      <div style={{display:'grid',gridTemplateColumns:'170px 1fr',gap:8,alignItems:'start'}}>
+        <Field label="CEP" hint="Auto-preenche endereço">
+          <div style={{display:'flex',gap:4,alignItems:'center'}}>
+            <Inp value={form.cep||''} onChange={v=>{ const m=maskCEP(v); set('cep',m); if(m.replace(/\D/g,'').length===8) buscarCEPSoc(); }} placeholder="00000-000" disabled={bloq('endereco')}/>
+            {cepLoading&&<Spinner size={16}/>}
+          </div>
+          {cepErro&&<span style={{fontSize:11,color:'#e53935'}}>{cepErro}</span>}
+        </Field>
+        <Field label="Endereço" hint={isAlt('endereco')?`Atual: ${valAtual('endereco')}`:''}>
+          <Inp value={form.endereco} onChange={v=>set('endereco',v)} placeholder="Rua, número, bairro, cidade - UF" disabled={bloq('endereco')}/>
+        </Field>
+      </div>
 
       {/* Sócios */}
-      <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-          <label style={{fontSize:12,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px'}}>Sócios *</label>
-          <button onClick={addSocio} style={{padding:'4px 12px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontSize:12,fontWeight:600}}>+ Adicionar</button>
-        </div>
-        {form.socios.map((sc,i)=>(
-          <div key={i} style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:8}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-              <span style={{fontSize:12,fontWeight:700,color:C.dark}}>Sócio {i+1}</span>
-              {form.socios.length>1&&<button onClick={()=>rmSocio(i)} style={{background:'#fdecea',border:'none',color:'#b71c1c',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:12}}>✕ Remover</button>}
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <Field label="Nome Completo">
-                <Inp value={sc.nome} onChange={v=>setSocio(i,'nome',v)} placeholder="Nome do sócio"/>
-              </Field>
-              <Field label="CPF">
-                <Inp value={sc.cpf} onChange={v=>setSocio(i,'cpf',v)} placeholder="000.000.000-00"/>
-              </Field>
-              <Field label="Participação %">
-                <Inp value={sc.participacao} onChange={v=>setSocio(i,'participacao',v)} placeholder="50%"/>
-              </Field>
-              <div/>
-            </div>
-            <Field label="Endereço do Sócio">
-              <Inp value={sc.endereco} onChange={v=>setSocio(i,'endereco',v)} placeholder="Rua, número, bairro, cidade - UF, CEP"/>
-            </Field>
+      {(!dadosAtual || form.tipo!=='Alteração' || camposAlt.socios) ? (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <label style={{fontSize:12,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px'}}>Sócios{form.tipo==='Abertura'?' *':''}</label>
+            <button onClick={addSocio} style={{padding:'4px 12px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontSize:12,fontWeight:600}}>+ Adicionar</button>
           </div>
-        ))}
-      </div>
+          {form.socios.map((sc,i)=>{
+            const cpfDigits = (sc.cpf||'').replace(/\D/g,'');
+            const cpfOk = cpfDigits.length===11 ? validarCPF(sc.cpf) : null;
+            return (
+              <div key={i} style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.dark}}>Sócio {i+1}</span>
+                  {form.socios.length>1&&<button onClick={()=>rmSocio(i)} style={{background:'#fdecea',border:'none',color:'#b71c1c',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:12}}>✕ Remover</button>}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  <Field label="Nome Completo">
+                    <Inp value={sc.nome} onChange={v=>setSocio(i,'nome',v)} placeholder="Nome completo"/>
+                  </Field>
+                  <Field label="CPF" hint={cpfDigits.length===11?(cpfOk?'✅ CPF válido':'❌ CPF inválido'):''}>
+                    <Inp value={sc.cpf} onChange={v=>setSocio(i,'cpf',maskCPF(v))} placeholder="000.000.000-00"/>
+                  </Field>
+                  <Field label="Participação %">
+                    <Inp value={sc.participacao} onChange={v=>setSocio(i,'participacao',v)} placeholder="50%"/>
+                  </Field>
+                  <div/>
+                </div>
+                <Field label="Endereço do Sócio">
+                  <Inp value={sc.endereco} onChange={v=>setSocio(i,'endereco',v)} placeholder="Rua, número, bairro, cidade - UF, CEP"/>
+                </Field>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{background:'#f5f5f5',borderRadius:10,padding:12}}>
+          <div style={{fontSize:12,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:6}}>Quadro de Sócios (sem alteração)</div>
+          <div style={{fontSize:13,color:C.text,whiteSpace:'pre-wrap'}}>{form.socios.map(s=>`• ${s.nome}${s.cpf?' — CPF '+s.cpf:''}${s.participacao?' — '+s.participacao:''}`).join('\n')}</div>
+        </div>
+      )}
     </div>
   );
 
+  // ── Step 2: Dados Técnicos ────────────────────────────────────────────────
   const step2jsx = (
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <Field label="Capital Social" required>
-          <Inp value={form.capital} onChange={v=>set('capital',v)} placeholder="R$ 10.000,00"/>
+        <Field label="Capital Social" required hint={isAlt('capital')?`Atual: ${valAtual('capital')}`:''}>
+          <Inp value={form.capital} onChange={v=>set('capital',v)} placeholder="R$ 10.000,00" disabled={bloq('capital')}/>
         </Field>
-        <Field label="Regime Tributário" required>
-          <Sel value={form.regime} onChange={v=>set('regime',v)}
+        <Field label="Regime Tributário" required hint={isAlt('regime')?`Atual: ${valAtual('regime')}`:''}>
+          <Sel value={form.regime} onChange={v=>set('regime',v)} disabled={bloq('regime')}
             options={[
               {value:'Simples Nacional',label:'Simples Nacional'},
               {value:'Lucro Presumido', label:'Lucro Presumido'},
@@ -1133,24 +1328,41 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
               {value:'MEI',             label:'MEI'},
             ]}/>
         </Field>
-        <Field label="CNAE Principal (Código)">
-          <Inp value={form.cnaeCod} onChange={v=>set('cnaeCod',v)} placeholder="8630-5/04"/>
-        </Field>
-        <Field label="CNAE Principal (Descrição)">
-          <Inp value={form.cnaeDesc} onChange={v=>set('cnaeDesc',v)} placeholder="Atividade odontológica"/>
-        </Field>
       </div>
-      <Field label="CNAE Secundário">
-        <Inp value={form.cnaeSec} onChange={v=>set('cnaeSec',v)} placeholder="Código — Descrição (opcional)"/>
+
+      {/* CNAE com busca automática via BrasilAPI */}
+      <div style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:12,padding:14}}>
+        <div style={{fontWeight:600,fontSize:12,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:10}}>
+          CNAE Principal {isAlt('cnae')&&<span style={{color:'#856404',fontSize:11,textTransform:'none',fontWeight:400}}>Atual: {valAtual('cnaeCod')} — {valAtual('cnaeDesc')}</span>}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'170px 1fr auto',gap:8,alignItems:'start'}}>
+          <Field label="Código" hint="Ex: 6201-5/01">
+            <Inp value={form.cnaeCod} onChange={v=>{ set('cnaeCod',v); setCnaeErro(''); }} placeholder="0000-0/00" disabled={bloq('cnae')}/>
+          </Field>
+          <Field label="Descrição" hint={cnaeErro||''}>
+            <Inp value={form.cnaeDesc} onChange={v=>set('cnaeDesc',v)} placeholder="Preenchido ao buscar ou digitar" disabled={bloq('cnae')}/>
+          </Field>
+          <div style={{paddingTop:22}}>
+            <button onClick={buscarCNAESoc} disabled={cnaeLoading||bloq('cnae')}
+              style={{padding:'9px 14px',borderRadius:8,background:cnaeLoading||bloq('cnae')?'#ccc':C.med,color:'#fff',border:'none',cursor:cnaeLoading||bloq('cnae')?'not-allowed':'pointer',fontWeight:600,fontSize:12,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+              {cnaeLoading?<Spinner size={14}/>:'🔍'} Buscar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <Field label="CNAE Secundário" hint={isAlt('cnaeSec')?`Atual: ${valAtual('cnaeSec')}`:''}>
+        <Inp value={form.cnaeSec} onChange={v=>set('cnaeSec',v)} placeholder="Código — Descrição (opcional)" disabled={bloq('cnaeSec')}/>
       </Field>
-      <Field label="Objeto Social">
+      <Field label="Objeto Social" hint={isAlt('objeto')?`Atual: ${valAtual('objeto')}`:''}>
         <textarea value={form.objeto} onChange={e=>set('objeto',e.target.value)}
-          placeholder="Prestação de serviços odontológicos..."
-          style={{...inputStyle,minHeight:70,resize:'vertical'}}/>
+          disabled={bloq('objeto')}
+          placeholder="Prestação de serviços..."
+          style={{...inputStyle,minHeight:70,resize:'vertical',background:bloq('objeto')?'#f5f5f5':'#fff'}}/>
       </Field>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <Field label="Precisa de Alvará?">
-          <Sel value={form.alvara} onChange={v=>set('alvara',v)}
+        <Field label="Precisa de Alvará?" hint={isAlt('alvara')?`Atual: ${valAtual('alvara')}`:''}>
+          <Sel value={form.alvara} onChange={v=>set('alvara',v)} disabled={bloq('alvara')}
             options={[{value:'Não',label:'Não'},{value:'Sim',label:'Sim'}]}/>
         </Field>
         {form.alvara==='Sim' && (
@@ -1162,12 +1374,13 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </div>
   );
 
+  // ── Step 3: Financeiro ────────────────────────────────────────────────────
   const step3jsx = (
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <div style={{background:'#f0fafa',border:`1px solid ${C.border}`,borderRadius:12,padding:14}}>
         <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:10}}>💰 Financeiro do Serviço</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <Field label="Valor do Serviço Societário" hint="Cobrado pela abertura/alteração">
+          <Field label="Valor do Serviço Societário" hint="Abertura / alteração">
             <Inp value={form.vlServico} onChange={v=>set('vlServico',v)} placeholder="0,00"/>
           </Field>
           <Field label="Status de Pagamento">
@@ -1175,7 +1388,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
               options={[{value:'Pendente',label:'Pendente'},{value:'Parcial',label:'Parcial'},{value:'Pago',label:'Pago'}]}/>
           </Field>
           {form.tipo==='Abertura' && (
-            <Field label="Honorário Mensal (novo contrato)" hint="Valor que será cobrado mensalmente">
+            <Field label="Honorário Mensal (novo contrato)" hint="Mensalidade da nova empresa">
               <Inp value={form.honMensal} onChange={v=>set('honMensal',v)} placeholder="0,00"/>
             </Field>
           )}
@@ -1195,7 +1408,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
 
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:640,maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 8px 40px rgba(27,105,99,0.18)'}}>
+      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:680,maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 8px 40px rgba(27,105,99,0.18)'}}>
         <div style={{background:C.dark,padding:'16px 22px',borderRadius:'18px 18px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
           <div style={{color:'#fff',fontWeight:700,fontSize:16}}>🏢 Novo Processo Societário</div>
           <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:20,lineHeight:'32px',textAlign:'center'}}>×</button>
@@ -1486,6 +1699,347 @@ function Societario() {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  RELATÓRIOS SOCIETÁRIOS
+// ═════════════════════════════════════════════════════════════════════════════
+function RelatoriosSocietario() {
+  const [lista,   setLista]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [aba,     setAba]     = useState('resumo');
+  const [filtroTipo,   setFiltroTipo]   = useState('');
+  const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroPgto,   setFiltroPgto]   = useState('');
+
+  useEffect(()=>{
+    apiFetch('societario')
+      .then(d=>{ setLista(d); setLoading(false); })
+      .catch(e=>{ setError(e.message); setLoading(false); });
+  },[]);
+
+  function parseVl(v){ return parseFloat(String(v||0).replace(',','.'))||0; }
+
+  const filtrado = lista.filter(p=>
+    (!filtroTipo   || p.tipo===filtroTipo) &&
+    (!filtroStatus || String(p.stProcesso||'').includes(filtroStatus)) &&
+    (!filtroPgto   || p.stPgto===filtroPgto)
+  );
+
+  const vlTotal   = lista.reduce((a,p)=>a+parseVl(p.vlServico),0);
+  const vlPago    = lista.filter(p=>p.stPgto==='Pago').reduce((a,p)=>a+parseVl(p.vlServico),0);
+  const vlPend    = lista.filter(p=>p.stPgto!=='Pago').reduce((a,p)=>a+parseVl(p.vlServico),0);
+  const honTotal  = lista.filter(p=>p.tipo==='Abertura').reduce((a,p)=>a+parseVl(p.honMensal),0);
+  const nAbertura = lista.filter(p=>p.tipo==='Abertura').length;
+  const nAlteracao= lista.filter(p=>p.tipo==='Alteração').length;
+  const nAndamento= lista.filter(p=>String(p.stProcesso||'').includes('Andamento')).length;
+  const nConcluido= lista.filter(p=>String(p.stProcesso||'').includes('Concluído')).length;
+
+  function gerarRelatorioImpressao(){
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+    <title>Relatório Societário</title>
+    <style>
+      body{font-family:Arial,sans-serif;font-size:11px;color:#222;margin:20px}
+      h1{color:#1B6963;font-size:16px;border-bottom:2px solid #1B6963;padding-bottom:6px;margin-bottom:10px}
+      h2{color:#1B6963;font-size:12px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.4px}
+      table{width:100%;border-collapse:collapse;margin-bottom:14px}
+      th{background:#1B6963;color:#fff;padding:5px 8px;text-align:left;font-size:10.5px}
+      td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top}
+      tr:nth-child(even){background:#f9f9f9}
+      .total-row{background:#f0fafa;font-weight:bold;border-top:2px solid #1B6963}
+      .res-table td{border:1px solid #ddd;padding:6px 10px}
+      .res-table .lbl{background:#f0fafa;font-weight:bold;color:#1B6963;width:180px}
+      @media print{button{display:none!important}body{margin:8px}}
+    </style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h1>📋 Relatório de Processos Societários</h1>
+        <div style="font-size:10px;color:#666;margin-bottom:12px">Facilita Soluções Contábeis &nbsp;·&nbsp; Emitido em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+      <button onclick="window.print()" style="padding:8px 18px;background:#1B6963;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;margin-top:4px">🖨️ Imprimir / PDF</button>
+    </div>
+    <h2>Resumo Geral</h2>
+    <table class="res-table" style="max-width:600px">
+      <tr><td class="lbl">Total de Processos</td><td><strong>${lista.length}</strong></td>
+          <td class="lbl">Aberturas</td><td><strong>${nAbertura}</strong></td>
+          <td class="lbl">Alterações</td><td><strong>${nAlteracao}</strong></td></tr>
+      <tr><td class="lbl">Em Andamento</td><td>${nAndamento}</td>
+          <td class="lbl">Concluídos</td><td>${nConcluido}</td>
+          <td class="lbl">Outros</td><td>${lista.length-nAndamento-nConcluido}</td></tr>
+      <tr><td class="lbl">Faturado (serviços)</td><td><strong>${fmtMoeda(vlTotal)}</strong></td>
+          <td class="lbl">Recebido</td><td style="color:green"><strong>${fmtMoeda(vlPago)}</strong></td>
+          <td class="lbl">Pendente</td><td style="color:red"><strong>${fmtMoeda(vlPend)}</strong></td></tr>
+      <tr><td class="lbl">Honorário Mensal (novas)</td><td colspan="5"><strong>${fmtMoeda(honTotal)}/mês</strong> — de ${lista.filter(p=>p.tipo==='Abertura'&&p.honMensal).length} empresa(s) nova(s)</td></tr>
+    </table>
+    <h2>Todos os Processos (${filtrado.length})</h2>
+    <table>
+      <tr>
+        <th>Nº</th><th>Tipo</th><th>Empresa</th><th>CNPJ</th><th>Regime</th>
+        <th>Status Processo</th><th>Aprovação</th><th>Pgto</th><th>Vl. Serviço</th><th>Hon./mês</th><th>Criação</th>
+      </tr>
+      ${filtrado.map((p,i)=>`
+      <tr>
+        <td><strong>${p.numero}</strong></td>
+        <td>${p.tipo}</td>
+        <td><strong>${p.razao}</strong>${p.fantasia?'<br><small>'+p.fantasia+'</small>':''}</td>
+        <td style="white-space:nowrap">${p.cnpj||'—'}</td>
+        <td>${p.regime||'—'}</td>
+        <td>${p.stProcesso||'—'}</td>
+        <td>${p.stAprovacao||'—'}</td>
+        <td style="font-weight:bold;color:${p.stPgto==='Pago'?'green':p.stPgto==='Parcial'?'#856404':'red'}">${p.stPgto||'—'}</td>
+        <td style="white-space:nowrap">${p.vlServico?fmtMoeda(parseVl(p.vlServico)):'—'}</td>
+        <td style="white-space:nowrap">${p.honMensal?fmtMoeda(parseVl(p.honMensal))+'/mês':'—'}</td>
+        <td style="white-space:nowrap">${p.dtCriacao||'—'}</td>
+      </tr>`).join('')}
+      <tr class="total-row">
+        <td colspan="8" style="text-align:right">TOTAL (${filtrado.length} processos):</td>
+        <td style="white-space:nowrap">${fmtMoeda(filtrado.reduce((a,p)=>a+parseVl(p.vlServico),0))}</td>
+        <td style="white-space:nowrap">${fmtMoeda(filtrado.filter(p=>p.tipo==='Abertura').reduce((a,p)=>a+parseVl(p.honMensal),0))}/mês</td>
+        <td></td>
+      </tr>
+    </table>
+    </body></html>`;
+    const w = window.open('','_blank','width=1100,height=800');
+    w.document.write(html); w.document.close();
+  }
+
+  const ABA_BTNS = [{id:'resumo',l:'📊 Resumo'},{id:'processos',l:'📋 Processos'},{id:'financeiro',l:'💰 Financeiro'}];
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>📊 Relatórios Societários</h2>
+        <button onClick={gerarRelatorioImpressao}
+          style={{padding:'8px 20px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:6}}>
+          🖨️ Imprimir / Exportar PDF
+        </button>
+      </div>
+
+      {loading && <Spinner/>}
+      {!loading && error && <ErrMsg msg={error}/>}
+      {!loading && !error && (
+        <>
+          {/* Abas */}
+          <div style={{display:'flex',marginBottom:20,background:'#fff',borderRadius:10,border:`1px solid ${C.border}`,overflow:'hidden'}}>
+            {ABA_BTNS.map((t,i)=>(
+              <button key={t.id} onClick={()=>setAba(t.id)}
+                style={{flex:1,padding:'10px 8px',border:'none',cursor:'pointer',fontWeight:600,fontSize:13,
+                  background:aba===t.id?C.dark:'#fff',color:aba===t.id?'#fff':C.muted,
+                  borderRight:i<ABA_BTNS.length-1?`1px solid ${C.border}`:'none'}}>
+                {t.l}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Resumo ───────────────────────────────────────────────────── */}
+          {aba==='resumo' && (
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:16}}>
+                <MetricCard icon="🏢" label="Total de Processos" value={lista.length} sub={`${nAbertura} aberturas · ${nAlteracao} alterações`} accent={C.dark}/>
+                <MetricCard icon="🔄" label="Em Andamento" value={nAndamento} sub="processos ativos" accent="#1565c0"/>
+                <MetricCard icon="✅" label="Concluídos" value={nConcluido} sub="processos finalizados" accent="#1b5e20"/>
+                <MetricCard icon="💰" label="Faturado (Serviços)" value={fmtMoeda(vlTotal)} sub={`${fmtMoeda(vlPago)} recebido`} accent={C.dark}/>
+                <MetricCard icon="⏳" label="A Receber" value={fmtMoeda(vlPend)} sub="pendente de pagamento" accent="#856404"/>
+                <MetricCard icon="📅" label="Honorário Mensal" value={fmtMoeda(honTotal)+'/mês'} sub="de aberturas cadastradas" accent="#1b5e20"/>
+              </div>
+              {/* Distribuição por tipo */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                {[
+                  {titulo:'Por Tipo de Processo', items:[
+                    {l:'Abertura de Empresa', n:nAbertura, cor:'#1565c0', bg:'#e3f2fd'},
+                    {l:'Alteração Contratual', n:nAlteracao, cor:'#6a1b9a', bg:'#f3e5f5'},
+                  ]},
+                  {titulo:'Por Status', items:[
+                    {l:'Em Andamento', n:nAndamento, cor:'#856404', bg:'#fff8e1'},
+                    {l:'Concluídos',   n:nConcluido, cor:'#1b5e20', bg:'#e8f5e9'},
+                    {l:'Outros',       n:lista.length-nAndamento-nConcluido, cor:C.muted, bg:'#f5f5f5'},
+                  ]},
+                ].map(({titulo,items})=>(
+                  <div key={titulo} style={{background:'#fff',borderRadius:14,border:`1px solid ${C.border}`,padding:18}}>
+                    <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:12}}>{titulo}</div>
+                    {items.map(({l,n,cor,bg})=>(
+                      <div key={l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
+                        <span style={{fontSize:13,color:C.text}}>{l}</span>
+                        <span style={{padding:'2px 10px',borderRadius:20,fontSize:12,fontWeight:700,background:bg,color:cor}}>{n}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Processos ────────────────────────────────────────────────── */}
+          {aba==='processos' && (
+            <div>
+              {/* Filtros */}
+              <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+                <Sel value={filtroTipo} onChange={setFiltroTipo}
+                  options={[{value:'',label:'Todos os tipos'},{value:'Abertura',label:'Abertura'},{value:'Alteração',label:'Alteração'}]}/>
+                <Sel value={filtroStatus} onChange={setFiltroStatus}
+                  options={[{value:'',label:'Todos os status'},{value:'Andamento',label:'Em Andamento'},{value:'Concluído',label:'Concluído'},{value:'Aguardando',label:'Aguardando'},{value:'Cancelado',label:'Cancelado'}]}/>
+                <Sel value={filtroPgto} onChange={setFiltroPgto}
+                  options={[{value:'',label:'Todos os pag.'},{value:'Pendente',label:'Pendente'},{value:'Parcial',label:'Parcial'},{value:'Pago',label:'Pago'}]}/>
+                {(filtroTipo||filtroStatus||filtroPgto)&&(
+                  <button onClick={()=>{setFiltroTipo('');setFiltroStatus('');setFiltroPgto('');}}
+                    style={{padding:'0 14px',borderRadius:8,background:'#f0f0f0',border:`1px solid ${C.border}`,cursor:'pointer',fontSize:13,color:C.muted}}>
+                    ✕ Limpar
+                  </button>
+                )}
+                <span style={{display:'flex',alignItems:'center',fontSize:12,color:C.muted}}>{filtrado.length} resultado(s)</span>
+              </div>
+
+              {/* Tabela */}
+              <div style={{overflowX:'auto',borderRadius:12,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.06)'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',background:'#fff',minWidth:800}}>
+                  <thead>
+                    <tr style={{background:C.dark}}>
+                      {['Nº','Tipo','Empresa','CNPJ','Regime','Status','Aprovação','Pgto','Vl. Serviço','Criação'].map(h=>(
+                        <th key={h} style={{padding:'9px 12px',color:'#fff',textAlign:'left',fontSize:11.5,fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtrado.map((p,i)=>(
+                      <tr key={i} style={{background:i%2?'#f8fffe':'#fff',borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'8px 12px',fontSize:12,fontWeight:600,color:C.dark,whiteSpace:'nowrap'}}>{p.numero}</td>
+                        <td style={{padding:'8px 12px',fontSize:12}}>
+                          <span style={{padding:'2px 8px',borderRadius:20,fontSize:10.5,fontWeight:600,
+                            background:p.tipo==='Abertura'?'#e3f2fd':'#f3e5f5',
+                            color:p.tipo==='Abertura'?'#1565c0':'#6a1b9a',whiteSpace:'nowrap'}}>
+                            {p.tipo}
+                          </span>
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:12,maxWidth:180}}>
+                          <div style={{fontWeight:600,color:C.text}}>{p.razao}</div>
+                          {p.fantasia&&<div style={{fontSize:10.5,color:C.muted}}>{p.fantasia}</div>}
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:11,color:C.muted,whiteSpace:'nowrap'}}>{p.cnpj||'—'}</td>
+                        <td style={{padding:'8px 12px',fontSize:11,whiteSpace:'nowrap'}}>{p.regime||'—'}</td>
+                        <td style={{padding:'8px 12px',fontSize:11,whiteSpace:'nowrap'}}>{p.stProcesso||'—'}</td>
+                        <td style={{padding:'8px 12px',fontSize:11,whiteSpace:'nowrap'}}>{p.stAprovacao||'—'}</td>
+                        <td style={{padding:'8px 12px',fontSize:11,fontWeight:600,whiteSpace:'nowrap',
+                          color:p.stPgto==='Pago'?'#1b5e20':p.stPgto==='Parcial'?'#856404':'#b71c1c'}}>
+                          {p.stPgto||'—'}
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:12,fontWeight:600,whiteSpace:'nowrap'}}>
+                          {p.vlServico?fmtMoeda(parseVl(p.vlServico)):'—'}
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:11,color:C.muted,whiteSpace:'nowrap'}}>{p.dtCriacao||'—'}</td>
+                      </tr>
+                    ))}
+                    <tr style={{background:'#f0fafa',borderTop:`2px solid ${C.border}`}}>
+                      <td colSpan={8} style={{padding:'8px 12px',fontSize:12,textAlign:'right',fontWeight:700,color:C.dark}}>Total ({filtrado.length}):</td>
+                      <td style={{padding:'8px 12px',fontSize:13,fontWeight:800,color:C.dark,whiteSpace:'nowrap'}}>
+                        {fmtMoeda(filtrado.reduce((a,p)=>a+parseVl(p.vlServico),0))}
+                      </td>
+                      <td/>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Financeiro ───────────────────────────────────────────────── */}
+          {aba==='financeiro' && (
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              {/* Cards de totais */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16}}>
+                {[
+                  {bg:'#e8f5e9',bc:'#c8e6c9',vc:'#1b5e20',ic:'#4caf50',vl:vlPago,label:'✅ Recebido',sub:`${lista.filter(p=>p.stPgto==='Pago').length} processo(s) pagos`},
+                  {bg:'#fff8e1',bc:'#ffe082',vc:'#856404',ic:'#f9a825',vl:vlPend,label:'⏳ A Receber',sub:`${lista.filter(p=>p.stPgto!=='Pago').length} processo(s) pendentes`},
+                  {bg:'#e3f2fd',bc:'#90caf9',vc:'#1565c0',ic:'#42a5f5',vl:honTotal,label:'📅 Hon. Mensal',sub:`${lista.filter(p=>p.tipo==='Abertura'&&p.honMensal).length} empresa(s) nova(s)`,sufixo:'/mês'},
+                ].map(({bg,bc,vc,ic,vl,label,sub,sufixo})=>(
+                  <div key={label} style={{background:bg,borderRadius:14,padding:20,border:`1px solid ${bc}`}}>
+                    <div style={{fontSize:22,fontWeight:800,color:vc}}>{fmtMoeda(vl)}{sufixo||''}</div>
+                    <div style={{fontSize:13,fontWeight:600,color:vc,marginTop:4}}>{label}</div>
+                    <div style={{fontSize:11,color:ic,marginTop:2}}>{sub}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Tabela por status de pagamento */}
+              <div style={{background:'#fff',borderRadius:12,border:`1px solid ${C.border}`,overflow:'hidden'}}>
+                <div style={{padding:'14px 18px',fontWeight:700,fontSize:14,color:C.dark,borderBottom:`1px solid ${C.border}`}}>
+                  Por Status de Pagamento
+                </div>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead>
+                    <tr style={{background:'#f0fafa'}}>
+                      {['Status','Processos','Total Serviços','Honorário Mensal'].map(h=>(
+                        <th key={h} style={{padding:'9px 18px',textAlign:'left',fontSize:11.5,fontWeight:600,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      {st:'Pago',    cor:'#1b5e20', bg:'#e8f5e9'},
+                      {st:'Parcial', cor:'#856404', bg:'#fff8e1'},
+                      {st:'Pendente',cor:'#b71c1c', bg:'#fdecea'},
+                    ].map(({st,cor,bg})=>{
+                      const grp = lista.filter(p=>p.stPgto===st);
+                      const vl  = grp.reduce((a,p)=>a+parseVl(p.vlServico),0);
+                      const hon = grp.filter(p=>p.tipo==='Abertura').reduce((a,p)=>a+parseVl(p.honMensal),0);
+                      return (
+                        <tr key={st} style={{borderBottom:`1px solid ${C.border}`}}>
+                          <td style={{padding:'10px 18px'}}>
+                            <span style={{padding:'2px 10px',borderRadius:20,fontSize:12,fontWeight:600,background:bg,color:cor}}>{st}</span>
+                          </td>
+                          <td style={{padding:'10px 18px',fontSize:13}}>{grp.length}</td>
+                          <td style={{padding:'10px 18px',fontSize:13,fontWeight:600,color:cor}}>{fmtMoeda(vl)}</td>
+                          <td style={{padding:'10px 18px',fontSize:13,color:C.muted}}>{hon>0?fmtMoeda(hon)+'/mês':'—'}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr style={{background:'#f0fafa',borderTop:`2px solid ${C.border}`}}>
+                      <td style={{padding:'10px 18px',fontWeight:700,fontSize:13,color:C.dark}}>Total Geral</td>
+                      <td style={{padding:'10px 18px',fontSize:13,fontWeight:700}}>{lista.length}</td>
+                      <td style={{padding:'10px 18px',fontSize:14,fontWeight:800,color:C.dark}}>{fmtMoeda(vlTotal)}</td>
+                      <td style={{padding:'10px 18px',fontSize:13,fontWeight:700,color:'#1b5e20'}}>{fmtMoeda(honTotal)}/mês</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              {/* Tabela de aberturas com honorário */}
+              {lista.filter(p=>p.tipo==='Abertura'&&p.honMensal).length>0 && (
+                <div style={{background:'#fff',borderRadius:12,border:`1px solid ${C.border}`,overflow:'hidden'}}>
+                  <div style={{padding:'14px 18px',fontWeight:700,fontSize:14,color:C.dark,borderBottom:`1px solid ${C.border}`}}>
+                    📅 Novas Empresas com Honorário Mensal
+                  </div>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr style={{background:'#f0fafa'}}>
+                        {['Nº','Empresa','Regime','Honorário/mês','Status Processo'].map(h=>(
+                          <th key={h} style={{padding:'8px 18px',textAlign:'left',fontSize:11.5,fontWeight:600,color:C.muted,borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lista.filter(p=>p.tipo==='Abertura'&&p.honMensal).map((p,i)=>(
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i%2?'#f8fffe':'#fff'}}>
+                          <td style={{padding:'8px 18px',fontSize:12,fontWeight:600,color:C.dark}}>{p.numero}</td>
+                          <td style={{padding:'8px 18px',fontSize:12}}>{p.razao}</td>
+                          <td style={{padding:'8px 18px',fontSize:12,color:C.muted}}>{p.regime||'—'}</td>
+                          <td style={{padding:'8px 18px',fontSize:13,fontWeight:700,color:'#1b5e20'}}>{fmtMoeda(parseVl(p.honMensal))}/mês</td>
+                          <td style={{padding:'8px 18px',fontSize:12}}>{p.stProcesso||'—'}</td>
+                        </tr>
+                      ))}
+                      <tr style={{background:'#e8f5f4',borderTop:`2px solid ${C.border}`}}>
+                        <td colSpan={3} style={{padding:'8px 18px',fontSize:12,fontWeight:700,color:C.dark,textAlign:'right'}}>Total Honorários/mês:</td>
+                        <td style={{padding:'8px 18px',fontSize:14,fontWeight:800,color:'#1b5e20'}}>{fmtMoeda(honTotal)}/mês</td>
+                        <td/>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Configuracoes() {
   return (
     <div>
@@ -1533,6 +2087,7 @@ const VIEWS = [
   {id:'contratos',  icon:'📄', label:'Contratos'},
   {id:'assinaturas',icon:'🖊️', label:'Assinaturas'},
   {id:'societario', icon:'🏢', label:'Societário'},
+  {id:'relatorios', icon:'🖨️', label:'Relatórios'},
   {id:'config',     icon:'⚙️',  label:'Configurações'},
 ];
 
@@ -1560,6 +2115,7 @@ function App() {
     if(view==='contratos')   return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
     if(view==='assinaturas') return <Assinaturas key={refreshKey}/>;
     if(view==='societario')  return <Societario key={refreshKey}/>;
+    if(view==='relatorios')  return <RelatoriosSocietario key={refreshKey}/>;
     if(view==='config')      return <Configuracoes/>;
     return null;
   };
@@ -1587,7 +2143,7 @@ function App() {
         }}>➕ Novo Contrato</button>
         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,fontSize:11.5,color:C.muted,paddingLeft:4}}>
           <div style={{fontWeight:600}}>Facilita Contábil</div>
-          <div>v4.0 — Etapa 4</div>
+          <div>v5.0 — Etapa 5</div>
         </div>
       </aside>
 
