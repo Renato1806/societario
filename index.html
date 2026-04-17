@@ -11,6 +11,7 @@
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0fafa;color:#1a2e2c}
     @keyframes spin{to{transform:rotate(360deg)}}
+    input,select,textarea{font-family:inherit}
     @media(max-width:700px){
       .sidebar-desktop{display:none!important}
       .topbar-mobile{display:flex!important}
@@ -23,7 +24,6 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-// ─── API ────────────────────────────────────────────────────────────────────
 const API_URL = 'https://script.google.com/macros/s/AKfycbyvRTOfOyjh44rJ78ijGiTLlmNX_UM6tIeVRGYtKY6aUNQ93xon6xdoxCTVlv2lFHsq/exec';
 
 async function apiFetch(action, params = {}) {
@@ -35,13 +35,24 @@ async function apiFetch(action, params = {}) {
   return json.data;
 }
 
-// ─── Paleta ─────────────────────────────────────────────────────────────────
+async function buscarCNPJDireto(cnpj) {
+  const c = cnpj.replace(/\D/g,'');
+  const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${c}`);
+  if (!res.ok) throw new Error('CNPJ não encontrado');
+  return res.json();
+}
+
 const C = {
   dark:'#1B6963', med:'#3E9C95', light:'#4DD9C5',
   bg:'#f0fafa', card:'#ffffff', text:'#1a2e2c', muted:'#6b8e8b', border:'#c5e1df'
 };
 
-// ─── Logo SVG ────────────────────────────────────────────────────────────────
+function cap(str) {
+  if (!str) return '';
+  const prep = new Set(['de','da','do','das','dos','e','a','o','as','os','em','no','na','nos','nas','por','para']);
+  return str.toLowerCase().split(' ').map((p,i)=> i>0&&prep.has(p)?p:p.charAt(0).toUpperCase()+p.slice(1)).join(' ');
+}
+
 function LogoIcon({ size=36 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64">
@@ -54,7 +65,6 @@ function LogoIcon({ size=36 }) {
       <rect width="64" height="64" rx="14" fill="url(#lg)"/>
       <path d="M18 12 C18 12 28 8 38 18 C48 28 44 40 32 44 C20 48 12 40 16 28 Z" fill="white" opacity="0.92"/>
       <path d="M46 52 C46 52 36 56 26 46 C16 36 20 24 32 20 C44 16 52 24 48 36 Z" fill="white" opacity="0.40"/>
-      <path d="M20 30 L28 22" stroke="rgba(255,255,255,0.6)" strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   );
 }
@@ -70,7 +80,6 @@ function LogoFull() {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
   const n = parseFloat(v)||0;
   return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -103,10 +112,10 @@ function MetricCard({icon,label,value,sub,accent}) {
     </div>
   );
 }
-function Spinner() {
+function Spinner({size=36}) {
   return (
-    <div style={{display:'flex',justifyContent:'center',alignItems:'center',padding:60}}>
-      <div style={{width:36,height:36,borderRadius:'50%',border:`4px solid ${C.border}`,borderTopColor:C.med,animation:'spin 0.8s linear infinite'}}/>
+    <div style={{display:'flex',justifyContent:'center',alignItems:'center',padding:size<20?0:60}}>
+      <div style={{width:size,height:size,borderRadius:'50%',border:`${size>20?4:2}px solid ${C.border}`,borderTopColor:C.med,animation:'spin 0.8s linear infinite',flexShrink:0}}/>
     </div>
   );
 }
@@ -120,11 +129,375 @@ function ErrMsg({msg,onRetry}) {
   );
 }
 
-// ─── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard() {
-  const [data,setData]   = useState(null);
+// ── Inputs reutilizáveis ─────────────────────────────────────────────────────
+function Field({label, required, children, hint}) {
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+      <label style={{fontSize:12,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px'}}>
+        {label}{required&&<span style={{color:'#e53935',marginLeft:2}}>*</span>}
+      </label>
+      {children}
+      {hint&&<span style={{fontSize:11,color:C.muted}}>{hint}</span>}
+    </div>
+  );
+}
+const inputStyle = {
+  padding:'9px 12px', borderRadius:8, border:`1.5px solid ${C.border}`,
+  fontSize:13.5, color:C.text, outline:'none', background:'#fff',
+  transition:'border-color 0.15s', width:'100%'
+};
+function Inp({value, onChange, placeholder, type='text', disabled, onFocus, onBlur}) {
+  const [focused,setFocused] = useState(false);
+  return (
+    <input
+      type={type} value={value||''} placeholder={placeholder} disabled={disabled}
+      onChange={e=>onChange(e.target.value)}
+      onFocus={()=>{setFocused(true);onFocus&&onFocus();}}
+      onBlur={()=>{setFocused(false);onBlur&&onBlur();}}
+      style={{...inputStyle, borderColor:focused?C.med:C.border, background:disabled?'#f5f5f5':'#fff'}}
+    />
+  );
+}
+function Sel({value,onChange,options,disabled}) {
+  return (
+    <select value={value||''} onChange={e=>onChange(e.target.value)} disabled={disabled}
+      style={{...inputStyle,cursor:'pointer',background:disabled?'#f5f5f5':'#fff'}}>
+      {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  WIZARD — NOVO CONTRATO
+// ═════════════════════════════════════════════════════════════════════════════
+const FORM_INICIAL = {
+  cnpj:'', nome:'', representante:'', cargo:'', cpfRepresentante:'',
+  telefone:'', email:'', endereco:'', bairro:'', cidadeUF:'', cep:'',
+  inicio:'', honorarios:'', diaVencimento:'10',
+  qtdFuncionarios:'0', qtdNF:'0', qtdLancamentos:'0',
+  observacoes:'',
+  gerarDoc: true, enviarAssinatura: true,
+};
+
+function NovoContratoWizard({ onClose, onSalvo }) {
+  const [step, setStep]         = useState(1);
+  const [form, setForm]         = useState(FORM_INICIAL);
+  const [cnpjLoading, setCnpjLoading] = useState(false);
+  const [cnpjErro, setCnpjErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [erroSalvar, setErroSalvar] = useState('');
+
+  function set(k, v) { setForm(f=>({...f,[k]:v})); }
+
+  // Máscara CNPJ
+  function maskCNPJ(v) {
+    return v.replace(/\D/g,'').substring(0,14)
+      .replace(/(\d{2})(\d)/,'$1.$2')
+      .replace(/(\d{3})(\d)/,'$1.$2')
+      .replace(/(\d{3})(\d)/,'$1/$2')
+      .replace(/(\d{4})(\d)/,'$1-$2');
+  }
+
+  async function buscarCNPJ() {
+    const digits = form.cnpj.replace(/\D/g,'');
+    if (digits.length !== 14) { setCnpjErro('Digite os 14 dígitos do CNPJ'); return; }
+    setCnpjLoading(true); setCnpjErro('');
+    try {
+      const d = await buscarCNPJDireto(digits);
+      const qsa = d.qsa || [];
+      const socio = qsa.find(s => s.qualificacao_socio && s.qualificacao_socio.toLowerCase().includes('administrador')) || qsa[0] || {};
+      const cid = cap(d.municipio || '');
+      const uf  = d.uf || '';
+      setForm(f=>({...f,
+        nome:          cap(d.razao_social || ''),
+        representante: cap(socio.nome_socio || ''),
+        cargo:         cap(socio.qualificacao_socio || 'Sócio Administrador'),
+        telefone:      d.ddd_telefone_1 ? `(${d.ddd_telefone_1.substring(0,2)}) ${d.ddd_telefone_1.substring(2)}` : f.telefone,
+        email:         (d.email||'').toLowerCase() || f.email,
+        endereco:      cap(`${d.descricao_tipo_de_logradouro||''} ${d.logradouro||''}, ${d.numero||'s/n'}`),
+        bairro:        cap(d.bairro || ''),
+        cidadeUF:      cid&&uf ? `${cid} - ${uf}` : f.cidadeUF,
+        cep:           d.cep || f.cep,
+      }));
+    } catch(e) {
+      setCnpjErro('CNPJ não encontrado na Receita Federal');
+    } finally {
+      setCnpjLoading(false);
+    }
+  }
+
+  async function salvar() {
+    setSalvando(true); setErroSalvar('');
+    try {
+      const dados = {
+        ...form,
+        gerarDoc: true,
+        enviarAssinatura: form.enviarAssinatura,
+      };
+      const data = await apiFetch('salvarContrato', { dados: JSON.stringify(dados) });
+      setResultado(data);
+      onSalvo && onSalvo();
+    } catch(e) {
+      setErroSalvar(e.message);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // ── Passo 1 ─────────────────────────────────────────────────────────────
+  function Step1() {
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        {/* CNPJ */}
+        <Field label="CNPJ" required>
+          <div style={{display:'flex',gap:8}}>
+            <Inp value={form.cnpj} onChange={v=>set('cnpj',maskCNPJ(v))} placeholder="00.000.000/0000-00"/>
+            <button onClick={buscarCNPJ} disabled={cnpjLoading}
+              style={{padding:'0 16px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:13,whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}>
+              {cnpjLoading ? <Spinner size={16}/> : '🔍'} Buscar
+            </button>
+          </div>
+          {cnpjErro && <span style={{fontSize:12,color:'#e53935'}}>{cnpjErro}</span>}
+        </Field>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Razão Social" required>
+            <Inp value={form.nome} onChange={v=>set('nome',v)} placeholder="Nome da empresa"/>
+          </Field>
+          <Field label="E-mail">
+            <Inp value={form.email} onChange={v=>set('email',v)} placeholder="email@empresa.com.br" type="email"/>
+          </Field>
+          <Field label="Representante" required>
+            <Inp value={form.representante} onChange={v=>set('representante',v)} placeholder="Nome completo"/>
+          </Field>
+          <Field label="Cargo">
+            <Inp value={form.cargo} onChange={v=>set('cargo',v)} placeholder="Sócio Administrador"/>
+          </Field>
+          <Field label="CPF do Representante">
+            <Inp value={form.cpfRepresentante} onChange={v=>set('cpfRepresentante',v)} placeholder="000.000.000-00"/>
+          </Field>
+          <Field label="Telefone">
+            <Inp value={form.telefone} onChange={v=>set('telefone',v)} placeholder="(44) 99999-9999"/>
+          </Field>
+        </div>
+
+        <Field label="Endereço">
+          <Inp value={form.endereco} onChange={v=>set('endereco',v)} placeholder="Rua, número"/>
+        </Field>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Bairro">
+            <Inp value={form.bairro} onChange={v=>set('bairro',v)} placeholder="Bairro"/>
+          </Field>
+          <Field label="Cidade / UF">
+            <Inp value={form.cidadeUF} onChange={v=>set('cidadeUF',v)} placeholder="Campo Mourão - PR"/>
+          </Field>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Passo 2 ─────────────────────────────────────────────────────────────
+  function Step2() {
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Data de Início" required>
+            <Inp value={form.inicio} onChange={v=>set('inicio',v)} type="date"/>
+          </Field>
+          <Field label="Honorários (R$)" required>
+            <Inp value={form.honorarios} onChange={v=>set('honorarios',v)} placeholder="0,00"/>
+          </Field>
+          <Field label="Dia de Vencimento" hint="Dia do mês para cobrança">
+            <Sel value={form.diaVencimento} onChange={v=>set('diaVencimento',v)}
+              options={Array.from({length:28},(_,i)=>({value:String(i+1),label:`Dia ${i+1}`}))}/>
+          </Field>
+          <Field label="Qtd. Funcionários">
+            <Inp value={form.qtdFuncionarios} onChange={v=>set('qtdFuncionarios',v)} type="number" placeholder="0"/>
+          </Field>
+          <Field label="NFs / mês">
+            <Inp value={form.qtdNF} onChange={v=>set('qtdNF',v)} type="number" placeholder="0"/>
+          </Field>
+          <Field label="Lançamentos / mês">
+            <Inp value={form.qtdLancamentos} onChange={v=>set('qtdLancamentos',v)} type="number" placeholder="0"/>
+          </Field>
+        </div>
+        <Field label="Observações">
+          <textarea value={form.observacoes} onChange={e=>set('observacoes',e.target.value)}
+            placeholder="Informações adicionais sobre o contrato..."
+            style={{...inputStyle,minHeight:80,resize:'vertical'}}/>
+        </Field>
+      </div>
+    );
+  }
+
+  // ── Passo 3 — Revisão ───────────────────────────────────────────────────
+  function Step3() {
+    const rows = [
+      ['CNPJ', form.cnpj],
+      ['Razão Social', form.nome],
+      ['Representante', `${form.representante} ${form.cargo?`(${form.cargo})`:''}`],
+      ['CPF Repr.', form.cpfRepresentante || '—'],
+      ['E-mail', form.email || '—'],
+      ['Telefone', form.telefone || '—'],
+      ['Endereço', [form.endereco, form.bairro, form.cidadeUF].filter(Boolean).join(', ') || '—'],
+      ['Início do Contrato', form.inicio ? new Date(form.inicio+'T12:00:00').toLocaleDateString('pt-BR') : '—'],
+      ['Honorários', form.honorarios ? fmtMoeda(form.honorarios.replace(',','.')) : '—'],
+      ['Dia de Vencimento', `Dia ${form.diaVencimento}`],
+      ['Funcionários', form.qtdFuncionarios],
+      ['NFs/mês', form.qtdNF],
+      ['Lançamentos/mês', form.qtdLancamentos],
+    ];
+    if (form.observacoes) rows.push(['Observações', form.observacoes]);
+
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        {/* Tabela de revisão */}
+        <div style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+          {rows.map(([lbl,val],i)=>(
+            <div key={lbl} style={{display:'flex',padding:'8px 14px',borderBottom:i<rows.length-1?`1px solid ${C.border}`:'none',background:i%2?'#fff':'transparent'}}>
+              <span style={{fontSize:12,fontWeight:600,color:C.muted,minWidth:140,flexShrink:0}}>{lbl}</span>
+              <span style={{fontSize:13,color:C.text,wordBreak:'break-word'}}>{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Opções */}
+        <div style={{background:'#f0fafa',border:`1px solid ${C.border}`,borderRadius:12,padding:16,display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.dark}}>Ações ao salvar:</div>
+          <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:13}}>
+            <input type="checkbox" checked={true} disabled
+              style={{width:16,height:16,accentColor:C.med}}/>
+            <span>📄 Gerar Google Doc (template preenchido)</span>
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:13}}>
+            <input type="checkbox" checked={form.enviarAssinatura}
+              onChange={e=>set('enviarAssinatura',e.target.checked)}
+              style={{width:16,height:16,accentColor:C.med}}/>
+            <span>🖊️ Enviar para ZapSign (assinatura eletrônica)</span>
+          </label>
+          {form.enviarAssinatura && (
+            <div style={{fontSize:12,color:C.muted,background:'#e8f5f4',padding:'8px 12px',borderRadius:8}}>
+              Signatários: Renato (escritório) · Cliente · Alexandre · Rafael
+            </div>
+          )}
+        </div>
+
+        {erroSalvar && (
+          <div style={{background:'#fdecea',border:'1px solid #f5c6cb',borderRadius:10,padding:'12px 16px',color:'#721c24',fontSize:13}}>
+            ⚠️ {erroSalvar}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Sucesso ──────────────────────────────────────────────────────────────
+  if (resultado) {
+    return (
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+        <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:440,boxShadow:'0 8px 40px rgba(27,105,99,0.18)',padding:32,textAlign:'center'}}>
+          <div style={{fontSize:52,marginBottom:12}}>🎉</div>
+          <h2 style={{fontSize:20,fontWeight:800,color:C.dark,marginBottom:8}}>Contrato criado!</h2>
+          <div style={{fontSize:14,color:C.muted,marginBottom:20}}>Número: <strong style={{color:C.dark}}>{resultado.numero}</strong></div>
+
+          {resultado.link && resultado.link !== '—' && (
+            <a href={resultado.link} target="_blank" rel="noreferrer"
+              style={{display:'inline-block',padding:'10px 24px',borderRadius:10,background:C.med,color:'#fff',textDecoration:'none',fontWeight:600,marginBottom:12}}>
+              📄 Abrir Contrato no Drive
+            </a>
+          )}
+
+          {resultado.zap && (
+            <div style={{margin:'12px 0',padding:'10px 14px',borderRadius:10,
+              background: resultado.zap.sucesso?'#e8f5e9':'#fff8e1',
+              color:       resultado.zap.sucesso?'#1b5e20':'#856404',
+              fontSize:13}}>
+              {resultado.zap.sucesso ? '✅ ' + resultado.zap.mensagem : '⚠️ ZapSign: ' + resultado.zap.erro}
+            </div>
+          )}
+
+          <button onClick={onClose}
+            style={{marginTop:8,padding:'10px 28px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:14}}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Modal principal ──────────────────────────────────────────────────────
+  const STEPS = ['Dados do Cliente','Detalhes do Contrato','Revisão'];
+  const canNext1 = form.cnpj.replace(/\D/g,'').length===14 && form.nome && form.representante;
+  const canNext2 = form.inicio && form.honorarios;
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:620,maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 8px 40px rgba(27,105,99,0.18)'}}>
+
+        {/* Header */}
+        <div style={{background:C.dark,padding:'16px 22px',borderRadius:'18px 18px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div style={{color:'#fff',fontWeight:700,fontSize:16}}>➕ Novo Contrato</div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:20,lineHeight:'32px',textAlign:'center'}}>×</button>
+        </div>
+
+        {/* Steps indicator */}
+        <div style={{display:'flex',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          {STEPS.map((s,i)=>(
+            <div key={i} style={{flex:1,padding:'12px 8px',textAlign:'center',
+              borderBottom:step===i+1?`3px solid ${C.med}`:'3px solid transparent',
+              color:step===i+1?C.dark:step>i+1?C.med:C.muted,
+              fontWeight:step===i+1?700:400,fontSize:12.5,cursor:'default',
+              background:step===i+1?'#f0fafa':'#fff',transition:'all 0.15s'}}>
+              <span style={{display:'inline-block',width:20,height:20,borderRadius:'50%',textAlign:'center',lineHeight:'20px',fontSize:11,fontWeight:700,marginRight:6,
+                background:step>i+1?C.med:step===i+1?C.dark:'#e0e0e0',
+                color:'#fff'}}>
+                {step>i+1?'✓':i+1}
+              </span>
+              {s}
+            </div>
+          ))}
+        </div>
+
+        {/* Conteúdo */}
+        <div style={{overflowY:'auto',flex:1,padding:'20px 22px'}}>
+          {step===1 && <Step1/>}
+          {step===2 && <Step2/>}
+          {step===3 && <Step3/>}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:'14px 22px',borderTop:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexShrink:0,background:'#fafffe',borderRadius:'0 0 18px 18px'}}>
+          <button onClick={step===1?onClose:()=>setStep(s=>s-1)}
+            style={{padding:'9px 20px',borderRadius:10,background:'#f0f0f0',border:'none',cursor:'pointer',fontWeight:600,fontSize:13,color:C.text}}>
+            {step===1?'Cancelar':'← Voltar'}
+          </button>
+
+          {step < 3 ? (
+            <button onClick={()=>setStep(s=>s+1)}
+              disabled={step===1?!canNext1:!canNext2}
+              style={{padding:'9px 24px',borderRadius:10,background:(step===1?canNext1:canNext2)?C.med:'#ccc',color:'#fff',border:'none',cursor:(step===1?canNext1:canNext2)?'pointer':'not-allowed',fontWeight:700,fontSize:13}}>
+              Próximo →
+            </button>
+          ) : (
+            <button onClick={salvar} disabled={salvando}
+              style={{padding:'9px 24px',borderRadius:10,background:salvando?'#ccc':C.dark,color:'#fff',border:'none',cursor:salvando?'not-allowed':'pointer',fontWeight:700,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+              {salvando ? <><Spinner size={16}/> Salvando...</> : '✅ Criar Contrato'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ═════════════════════════════════════════════════════════════════════════════
+function Dashboard({ onNovoContrato }) {
+  const [data,setData]       = useState(null);
   const [loading,setLoading] = useState(true);
-  const [error,setError] = useState(null);
+  const [error,setError]     = useState(null);
 
   const load = useCallback(async()=>{
     setLoading(true);setError(null);
@@ -140,7 +513,12 @@ function Dashboard() {
 
   return (
     <div>
-      <h2 style={{fontSize:20,fontWeight:700,color:C.dark,marginBottom:20}}>Painel de Controle</h2>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:10}}>
+        <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>Painel de Controle</h2>
+        <button onClick={onNovoContrato} style={{padding:'9px 20px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13}}>
+          ➕ Novo Contrato
+        </button>
+      </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:14,marginBottom:28}}>
         <MetricCard icon="👥" label="Clientes Ativos"     value={data.ativos}            accent={C.dark}/>
         <MetricCard icon="💰" label="Receita Mensal"      value={fmtMoeda(data.mrr)}     accent="#1b5e20" sub="MRR"/>
@@ -187,7 +565,9 @@ function Dashboard() {
   );
 }
 
-// ─── Modal de detalhe ────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+//  CONTRATOS
+// ═════════════════════════════════════════════════════════════════════════════
 function DetalheModal({contrato:c,onClose}) {
   const bs=badgeStatus(c.status), ba=badgeAssin(c.statusAssin);
   return (
@@ -203,18 +583,12 @@ function DetalheModal({contrato:c,onClose}) {
         <div style={{overflowY:'auto',flex:1}}>
           <div style={{padding:'20px 22px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px'}}>
             {[
-              ['CNPJ',c.cnpj],
-              ['Representante',c.representante+(c.cargo?` (${c.cargo})`:'')],
-              ['Telefone',c.telefone],
-              ['E-mail',c.email],
-              ['Honorários',fmtMoeda(c.honorario)],
-              ['Dia Vencimento',c.diaVcto?`Dia ${c.diaVcto}`:'—'],
-              ['Início',c.inicio],
-              ['Vencimento',c.vencimento],
-              ['Funcionários',c.funcionarios],
-              ['NFs/mês',c.nfsMes],
-              ['Lançamentos',c.lancamentos],
-              ['Último Aditivo',c.ultAditivo||'—'],
+              ['CNPJ',c.cnpj],['Representante',c.representante+(c.cargo?` (${c.cargo})`:'')],
+              ['Telefone',c.telefone],['E-mail',c.email],
+              ['Honorários',fmtMoeda(c.honorario)],['Dia Vcto',c.diaVcto?`Dia ${c.diaVcto}`:'—'],
+              ['Início',c.inicio],['Vencimento',c.vencimento],
+              ['Funcionários',c.funcionarios],['NFs/mês',c.nfsMes],
+              ['Lançamentos',c.lancamentos],['Último Aditivo',c.ultAditivo||'—'],
             ].map(([lbl,val])=>(
               <div key={lbl}>
                 <div style={{fontSize:11,color:C.muted,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.4px'}}>{lbl}</div>
@@ -240,8 +614,7 @@ function DetalheModal({contrato:c,onClose}) {
   );
 }
 
-// ─── Contratos ───────────────────────────────────────────────────────────────
-function Contratos() {
+function Contratos({ onNovoContrato }) {
   const [lista,setLista]   = useState([]);
   const [loading,setLoading] = useState(true);
   const [error,setError]   = useState(null);
@@ -271,16 +644,19 @@ function Contratos() {
         <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>Contratos</h2>
         <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar cliente, CNPJ…"
-            style={{padding:'8px 14px',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,outline:'none',minWidth:220}}/>
+            style={{padding:'8px 14px',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,outline:'none',minWidth:200}}/>
           <select value={filtro} onChange={e=>setFiltro(e.target.value)}
             style={{padding:'8px 12px',borderRadius:10,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:'#fff'}}>
-            <option value="todos">Todos os status</option>
+            <option value="todos">Todos</option>
             <option value="ativos">🟢 Ativos</option>
             <option value="vencendo">🟡 Vencendo</option>
             <option value="vencidos">🔴 Vencidos</option>
             <option value="rescindidos">⚫ Rescindidos</option>
           </select>
-          <button onClick={load} style={{padding:'8px 14px',borderRadius:10,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:13}}>🔄 Atualizar</button>
+          <button onClick={load} style={{padding:'8px 14px',borderRadius:10,background:'#f0f0f0',color:C.text,border:`1px solid ${C.border}`,cursor:'pointer',fontSize:13}}>🔄</button>
+          <button onClick={onNovoContrato} style={{padding:'8px 18px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13}}>
+            ➕ Novo Contrato
+          </button>
         </div>
       </div>
       {loading&&<Spinner/>}
@@ -334,7 +710,9 @@ function Contratos() {
   );
 }
 
-// ─── Configurações ───────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+//  CONFIGURAÇÕES
+// ═════════════════════════════════════════════════════════════════════════════
 function Configuracoes() {
   return (
     <div>
@@ -343,13 +721,11 @@ function Configuracoes() {
         <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginBottom:16}}>Informações do Escritório</h3>
         {[
           ['Escritório','FACILITA SOLUÇÕES CONTÁBEIS LTDA'],
-          ['CNPJ','21.966.306/0001-77'],
-          ['CRC','CRC-PR 008811/O-7'],
+          ['CNPJ','21.966.306/0001-77'],['CRC','CRC-PR 008811/O-7'],
           ['Endereço','Rua Guarapuava, nº 837 - Centro - Campo Mourão - PR'],
           ['Telefone','(44) 3017-5823 / (44) 98808-2002'],
           ['Contador Responsável','RENATO GARCIA RAMOS'],
-          ['CRC Resp.','CRC-PR 071339/O-7'],
-          ['E-mail','rennato.gr@gmail.com'],
+          ['CRC Resp.','CRC-PR 071339/O-7'],['E-mail','rennato.gr@gmail.com'],
         ].map(([l,v])=>(
           <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
             <span style={{fontSize:13,color:C.muted,fontWeight:600}}>{l}</span>
@@ -369,14 +745,16 @@ function Configuracoes() {
           </div>
         ))}
         <div style={{marginTop:20,padding:14,background:'#f0fafa',borderRadius:10,fontSize:12.5,color:C.muted}}>
-          ℹ️ Para alterar estas informações, edite o arquivo <code>Code.gs</code> no Google Apps Script e reimplante o Web App.
+          ℹ️ Para alterar, edite o <code>Code.gs</code> no Apps Script e reimplante.
         </div>
       </div>
     </div>
   );
 }
 
-// ─── App Principal ───────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+//  APP PRINCIPAL
+// ═════════════════════════════════════════════════════════════════════════════
 const VIEWS = [
   {id:'dashboard',icon:'📊',label:'Dashboard'},
   {id:'contratos',icon:'📄',label:'Contratos'},
@@ -384,23 +762,27 @@ const VIEWS = [
 ];
 
 function App() {
-  const [view,setView]       = useState('dashboard');
-  const [sideOpen,setSideOpen] = useState(false);
+  const [view,setView]           = useState('dashboard');
+  const [sideOpen,setSideOpen]   = useState(false);
+  const [showWizard,setShowWizard] = useState(false);
+  const [refreshKey,setRefreshKey] = useState(0);
+
+  function abrirNovoContrato() { setShowWizard(true); }
+  function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
 
   function navStyle(v) {
     return {
       display:'flex',alignItems:'center',gap:10,padding:'10px 16px',
       borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:500,
-      background: view===v.id?'#e8f5f4':'transparent',
+      background:view===v.id?'#e8f5f4':'transparent',
       color:      view===v.id?C.dark:C.muted,
       border:     view===v.id?`1px solid ${C.border}`:'1px solid transparent',
-      transition:'all 0.15s',
     };
   }
 
   const renderView = () => {
-    if(view==='dashboard') return <Dashboard/>;
-    if(view==='contratos') return <Contratos/>;
+    if(view==='dashboard') return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
+    if(view==='contratos') return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
     if(view==='config')    return <Configuracoes/>;
     return null;
   };
@@ -421,9 +803,14 @@ function App() {
             </div>
           ))}
         </nav>
+        <button onClick={abrirNovoContrato} style={{
+          margin:'8px 4px 16px',padding:'10px 14px',borderRadius:10,
+          background:C.dark,color:'#fff',border:'none',cursor:'pointer',
+          fontWeight:700,fontSize:13,textAlign:'left',display:'flex',alignItems:'center',gap:8
+        }}>➕ Novo Contrato</button>
         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,fontSize:11.5,color:C.muted,paddingLeft:4}}>
           <div style={{fontWeight:600}}>Facilita Contábil</div>
-          <div>v1.0 — Etapa 1</div>
+          <div>v2.0 — Etapa 2</div>
         </div>
       </aside>
 
@@ -440,13 +827,16 @@ function App() {
                 </div>
               ))}
             </nav>
+            <button onClick={()=>{abrirNovoContrato();setSideOpen(false);}} style={{
+              margin:'8px 4px 16px',padding:'10px 14px',borderRadius:10,
+              background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13
+            }}>➕ Novo Contrato</button>
           </aside>
         </div>
       )}
 
       {/* Conteúdo */}
       <main className="main-content" style={{flex:1,marginLeft:220,minHeight:'100vh',display:'flex',flexDirection:'column'}}>
-        {/* Top bar mobile */}
         <div className="topbar-mobile" style={{display:'none',padding:'12px 16px',background:'#fff',borderBottom:`1px solid ${C.border}`,alignItems:'center',gap:12}}>
           <button onClick={()=>setSideOpen(true)} style={{background:'none',border:'none',cursor:'pointer',fontSize:22,color:C.dark}}>☰</button>
           <LogoFull/>
@@ -455,6 +845,8 @@ function App() {
           {renderView()}
         </div>
       </main>
+
+      {showWizard && <NovoContratoWizard onClose={fecharWizard} onSalvo={fecharWizard}/>}
     </div>
   );
 }
