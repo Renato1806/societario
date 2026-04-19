@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
@@ -22,7 +22,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, createContext, useContext } = React;
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbyvRTOfOyjh44rJ78ijGiTLlmNX_UM6tIeVRGYtKY6aUNQ93xon6xdoxCTVlv2lFHsq/exec';
 
@@ -75,18 +75,22 @@ async function buscarCEP(cep) {
   // Retorna: { cep, state, city, neighborhood, street, location }
 }
 
+function maskFone(v) {
+  const d = v.replace(/\D/g,'').substring(0,11);
+  if(!d) return '';
+  if(d.length<=2)  return `(${d}`;
+  if(d.length<=6)  return `(${d.substring(0,2)}) ${d.substring(2)}`;
+  if(d.length<=10) return `(${d.substring(0,2)}) ${d.substring(2,6)}-${d.substring(6)}`;
+  return `(${d.substring(0,2)}) ${d.substring(2,7)}-${d.substring(7)}`;
+}
+
 // ── CNAE: busca descrição pela BrasilAPI ─────────────────────────────────────
 async function buscarCNAE(codigo) {
-  const d = codigo.replace(/[^\d]/g,'');
+  const d = codigo.replace(/\D/g,'');
   if (d.length < 4) throw new Error('Código muito curto');
-  // Formata: 1234567 → 1234-5/67
-  const fmt = d.length >= 7
-    ? `${d.substring(0,4)}-${d[4]}/${d.substring(5,7)}`
-    : d;
-  const res = await fetch(`https://brasilapi.com.br/api/cnae/v1/${encodeURIComponent(fmt)}`);
+  const res = await fetch(`https://brasilapi.com.br/api/cnae/v1/${d.substring(0,7)||d}`);
   if (!res.ok) throw new Error('CNAE não encontrado');
   return res.json();
-  // Retorna: { id, descricao, ... }
 }
 
 const C = {
@@ -99,6 +103,8 @@ function cap(str) {
   const prep = new Set(['de','da','do','das','dos','e','a','o','as','os','em','no','na','nos','nas','por','para']);
   return str.toLowerCase().split(' ').map((p,i)=> i>0&&prep.has(p)?p:p.charAt(0).toUpperCase()+p.slice(1)).join(' ');
 }
+
+const LogoCtx = createContext({ sidebar:'', ficha:'', setLogo:()=>{} });
 
 function LogoIcon({ size=36 }) {
   return (
@@ -116,6 +122,12 @@ function LogoIcon({ size=36 }) {
   );
 }
 function LogoFull() {
+  const { sidebar } = useContext(LogoCtx);
+  if(sidebar) return (
+    <div style={{display:'flex',alignItems:'center',gap:8}}>
+      <img src={sidebar} style={{height:40,maxWidth:140,objectFit:'contain'}} alt="Logo"/>
+    </div>
+  );
   return (
     <div style={{display:'flex',alignItems:'center',gap:10}}>
       <LogoIcon size={38}/>
@@ -206,10 +218,10 @@ const inputStyle = {
   fontSize:13.5, color:C.text, outline:'none', background:'#fff',
   transition:'border-color 0.15s', width:'100%'
 };
-function Inp({value, onChange, placeholder, type='text', disabled}) {
+function Inp({value, onChange, placeholder, type='text', disabled, inputMode}) {
   return (
     <input
-      type={type} value={value||''} placeholder={placeholder} disabled={disabled}
+      type={type} value={value||''} placeholder={placeholder} disabled={disabled} inputMode={inputMode}
       onChange={e=>onChange(e.target.value)}
       style={{...inputStyle, background:disabled?'#f5f5f5':'#fff'}}
     />
@@ -350,7 +362,7 @@ function NovoContratoWizard({ onClose, onSalvo }) {
           <Inp value={form.cpfRepresentante} onChange={v=>set('cpfRepresentante',v)} placeholder="000.000.000-00"/>
         </Field>
         <Field label="Telefone">
-          <Inp value={form.telefone} onChange={v=>set('telefone',v)} placeholder="(44) 99999-9999"/>
+          <Inp value={form.telefone} onChange={v=>set('telefone',maskFone(v))} placeholder="(44) 99999-9999"/>
         </Field>
       </div>
       <Field label="Endereço">
@@ -961,6 +973,8 @@ function Assinaturas() {
 //  SOCIETÁRIO
 // ═════════════════════════════════════════════════════════════════════════════
 
+const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+
 // ── Wizard: Novo Processo Societário ─────────────────────────────────────────
 const SOC_FORM_INICIAL = {
   tipo:'Abertura', razao:'', fantasia:'', cnpj:'', cep:'', telefone:'', email:'',
@@ -969,6 +983,7 @@ const SOC_FORM_INICIAL = {
   cnaeCod:'', cnaeDesc:'', cnaeSec:'', cnaesSecArr:[], objeto:'',
   alvara:'Não', im:'',
   inscrImobil:'', mtgImovel:'', mtgEstab:'',
+  endLogradouro:'', endNumero:'', endBairro:'', endCidade:'', endEstado:'PR',
   vlServico:'', stPgto:'Pendente', honMensal:'', obs:'',
 };
 
@@ -997,6 +1012,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   const [cnaeLoading, setCnaeLoading] = useState(false);
   const [cnaeErro, setCnaeErro]       = useState('');
   const cnaeTimerRef = useRef(null);
+  const { ficha: logoFicha } = useContext(LogoCtx);
 
   // ── Alteração: dados atuais (da Receita) e checkboxes de campos ───────────
   const [dadosAtual, setDadosAtual] = useState(null);
@@ -1047,6 +1063,11 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                     + (d.bairro?` - ${cap(d.bairro)}`:'')
                     + (d.municipio?` - ${cap(d.municipio)}`:'')
                     + (d.uf?` - ${d.uf}`:'')),
+        endLogradouro: cap(((d.descricao_tipo_de_logradouro||'')+' '+(d.logradouro||'')).trim()),
+        endNumero:     d.numero||'',
+        endBairro:     cap(d.bairro||''),
+        endCidade:     cap(d.municipio||''),
+        endEstado:     d.uf||'',
         cnaeCod:  String(d.cnae_fiscal||''),
         cnaeDesc: cap(d.cnae_fiscal_descricao||''),
         cnaesSecArr: secArr,
@@ -1073,9 +1094,10 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     try {
       const d = await buscarCEP(c);
       if(d.street) {
-        const partes = [cap(d.street||''), cap(d.neighborhood||''), cap(d.city||'')].filter(Boolean);
-        const end = partes.join(', ') + (d.state ? ' - ' + d.state : '');
-        set('endereco', end);
+        set('endLogradouro', cap(d.street||''));
+        set('endBairro', cap(d.neighborhood||''));
+        set('endCidade', cap(d.city||''));
+        set('endEstado', d.state||'');
       }
     } catch(e){ setCepErro('CEP não encontrado'); }
     finally{ setCepLoading(false); }
@@ -1151,10 +1173,16 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   async function salvar(){
     setSalvando(true); setErro('');
     try {
+      const enderecoFull = [form.endLogradouro, form.endNumero?`nº ${form.endNumero}`:''].filter(Boolean).join(', ')
+        + (form.endBairro?` - ${form.endBairro}`:'')
+        + (form.endCidade?` - ${form.endCidade}`:'')
+        + (form.endEstado?`/${form.endEstado}`:'');
+
       const dados = {
         ...form,
         socios: sociosTexto(),
         cnaeSec: cnaesSecTexto() || form.cnaeSec,
+        endereco: enderecoFull,
       };
       if(form.tipo==='Alteração' && dadosAtual) {
         dados.camposAlterados = Object.keys(camposAlt).filter(k=>camposAlt[k]).join(',');
@@ -1189,9 +1217,12 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       .ck{display:inline-block;width:14px;height:14px;border:1px solid #555;margin-right:4px;vertical-align:middle}
       @media print{button{display:none}}
     </style></head><body>
-    <div style="margin-bottom:14px">
-      <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
-      <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
+        <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
+      </div>
+      ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
     </div>
     <h2>${s.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'}</h2>
 
@@ -1247,6 +1278,12 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       <tr><td class="lbl">Objeto Social</td><td>${s.objeto||'—'}</td></tr>
       <tr><td class="lbl">Precisa Alvará?</td><td>${s.alvara}</td></tr>
       ${s.im?`<tr><td class="lbl">IM</td><td>${s.im}</td></tr>`:''}
+    </table>
+    <table>
+      <tr><td class="sec" colspan="2">Financeiro</td></tr>
+      ${s.vlServico?`<tr><td class="lbl">Valor do Serviço</td><td><strong>${fmtMoeda(s.vlServico)}</strong></td></tr>`:''}
+      ${s.honMensal?`<tr><td class="lbl">Honorário Mensal</td><td><strong>${fmtMoeda(s.honMensal)}/mês</strong></td></tr>`:''}
+      <tr><td class="lbl">Status Pagamento</td><td>${s.stPgto||'Pendente'}</td></tr>
     </table>
     <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
@@ -1350,7 +1387,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           <Inp value={form.fantasia} onChange={v=>set('fantasia',v)} placeholder="Nome comercial" disabled={bloq('fantasia')}/>
         </Field>
         <Field label="Telefone" hint={isAlt('telefone')?`Atual: ${valAtual('telefone')}`:''}>
-          <Inp value={form.telefone} onChange={v=>set('telefone',v)} placeholder="(44) 99999-9999" disabled={bloq('telefone')}/>
+          <Inp value={form.telefone} onChange={v=>set('telefone',maskFone(v))} placeholder="(44) 99999-9999" disabled={bloq('telefone')}/>
         </Field>
         <Field label="E-mail" hint={isAlt('email')?`Atual: ${valAtual('email')}`:''}>
           <Inp value={form.email} onChange={v=>set('email',v)} placeholder="email@empresa.com.br" type="email" disabled={bloq('email')}/>
@@ -1358,7 +1395,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       </div>
 
       {/* CEP + Endereço */}
-      <div style={{display:'grid',gridTemplateColumns:'170px 1fr',gap:8,alignItems:'start'}}>
+      <div style={{display:'grid',gridTemplateColumns:'140px 1fr 100px',gap:8,alignItems:'start'}}>
         <Field label="CEP" hint="Auto-preenche endereço">
           <div style={{display:'flex',gap:4,alignItems:'center'}}>
             <Inp value={form.cep||''} onChange={v=>{ const m=maskCEP(v); set('cep',m); if(m.replace(/\D/g,'').length===8) buscarCEPSoc(m); }} placeholder="00000-000" disabled={bloq('endereco')}/>
@@ -1366,8 +1403,23 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           </div>
           {cepErro&&<span style={{fontSize:11,color:'#e53935'}}>{cepErro}</span>}
         </Field>
-        <Field label="Endereço" hint={isAlt('endereco')?`Atual: ${valAtual('endereco')}`:''}>
-          <Inp value={form.endereco} onChange={v=>set('endereco',v)} placeholder="Rua, número, bairro, cidade - UF" disabled={bloq('endereco')}/>
+        <Field label="Logradouro" hint={isAlt('endereco')?`Atual: ${valAtual('endereco')}`:''}>
+          <Inp value={form.endLogradouro||''} onChange={v=>set('endLogradouro',v)} placeholder="Rua, Av., Praça..." disabled={bloq('endereco')}/>
+        </Field>
+        <Field label="Número">
+          <Inp value={form.endNumero||''} onChange={v=>set('endNumero',v)} placeholder="s/n" disabled={bloq('endereco')}/>
+        </Field>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:8,alignItems:'start'}}>
+        <Field label="Bairro">
+          <Inp value={form.endBairro||''} onChange={v=>set('endBairro',v)} placeholder="Bairro" disabled={bloq('endereco')}/>
+        </Field>
+        <Field label="Cidade">
+          <Inp value={form.endCidade||''} onChange={v=>set('endCidade',v)} placeholder="Cidade" disabled={bloq('endereco')}/>
+        </Field>
+        <Field label="UF">
+          <Sel value={form.endEstado||''} onChange={v=>set('endEstado',v)} disabled={bloq('endereco')}
+            options={[{value:'',label:'UF'},...UF_LIST.map(uf=>({value:uf,label:uf}))]}/>
         </Field>
       </div>
 
@@ -1377,13 +1429,13 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:8}}>Dados do Imóvel / Estabelecimento</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
             <Field label="Inscrição Imobiliária">
-              <Inp value={form.inscrImobil||''} onChange={v=>set('inscrImobil',v)} placeholder="Ex: 01.01.147.0020.001"/>
+              <Inp value={form.inscrImobil||''} onChange={v=>set('inscrImobil',v.replace(/\D/g,''))} placeholder="Ex: 01.01.147.0020.001" inputMode="numeric"/>
             </Field>
             <Field label="Metragem do Imóvel (m²)">
-              <Inp value={form.mtgImovel||''} onChange={v=>set('mtgImovel',v)} placeholder="Ex: 150"/>
+              <Inp value={form.mtgImovel||''} onChange={v=>set('mtgImovel',v.replace(/\D/g,''))} placeholder="Ex: 150" inputMode="numeric"/>
             </Field>
             <Field label="Metragem do Estabelecimento (m²)">
-              <Inp value={form.mtgEstab||''} onChange={v=>set('mtgEstab',v)} placeholder="Ex: 80"/>
+              <Inp value={form.mtgEstab||''} onChange={v=>set('mtgEstab',v.replace(/\D/g,''))} placeholder="Ex: 80" inputMode="numeric"/>
             </Field>
           </div>
         </div>
@@ -1659,6 +1711,7 @@ function Societario() {
   const [showForm,setShowForm]= useState(false);
   const [expanded,setExpanded]= useState(null);
   const [salvandoCk, setSalvandoCk] = useState({});
+  const { ficha: logoFicha } = useContext(LogoCtx);
 
   const load = useCallback(async()=>{
     setLoading(true);setError(null);
@@ -1693,7 +1746,11 @@ function Societario() {
       <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
       <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
     </div>
-    <h2>${p.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'} — ${p.numero}</h2>
+    <h2>${p.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'} — ${p.numero}${p.checklist?.codJucpr?' &nbsp;|&nbsp; Junta: '+p.checklist.codJucpr:''}</h2>
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start">
+      <div></div>
+      ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
+    </div>
     <table>
       <tr><td class="sec" colspan="2">Dados da Empresa</td></tr>
       <tr><td class="lbl">Tipo</td><td>${p.tipo}</td></tr>
@@ -1722,19 +1779,26 @@ function Societario() {
       ${p.im?`<tr><td class="lbl">IM</td><td>${p.im}</td></tr>`:''}
     </table>
     <table>
+      <tr><td class="sec" colspan="2">Financeiro</td></tr>
+      ${p.vlServico?`<tr><td class="lbl">Valor do Serviço</td><td><strong>${fmtMoeda(p.vlServico)}</strong></td></tr>`:''}
+      ${p.honMensal?`<tr><td class="lbl">Honorário Mensal</td><td><strong>${fmtMoeda(p.honMensal)}/mês</strong></td></tr>`:''}
+      <tr><td class="lbl">Status Pagamento</td><td>${p.stPgto||'—'}</td></tr>
+      ${p.dtConclusao?`<tr><td class="lbl">Data Conclusão</td><td>${p.dtConclusao}</td></tr>`:''}
+    </table>
+    <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
-      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td><span class="ck"></span> ${p.checklist?.jucpr||'⏳ Pendente'}${p.checklist?.codJucpr?` &nbsp;·&nbsp; <strong>Nº Proc:</strong> ${p.checklist.codJucpr}`:' &nbsp;— Nº Proc: _____________'}</td></tr>
-      <tr><td class="lbl">Prefeitura</td><td><span class="ck"></span> ${p.checklist?.prefeitura||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">DBE</td><td><span class="ck"></span> ${p.checklist?.dbe||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Taxa Junta Comercial</td><td><span class="ck"></span> ${p.checklist?.taxaJunta||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Assinatura</td><td><span class="ck"></span> ${p.checklist?.assinatura||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Receita Estadual</td><td><span class="ck"></span> ${p.checklist?.recEst||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Usuário Receita PR / IE</td><td><span class="ck"></span> ${p.checklist?.usrReceita||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Procuração RFB</td><td><span class="ck"></span> ${p.checklist?.procuracao||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Vigilância Sanitária</td><td><span class="ck"></span> ${p.checklist?.vigilancia||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Bombeiros</td><td><span class="ck"></span> ${p.checklist?.bombeiros||'⏳ Pendente'}</td></tr>
-      <tr><td class="lbl">Alvará</td><td><span class="ck"></span> ${p.checklist?.alvaraCk||'N/A'}</td></tr>
-      <tr><td class="lbl">Usuário NFS / Cadastro</td><td><span class="ck"></span> ${p.checklist?.usrNfs||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td>${(p.checklist?.jucpr||'').includes('Concluído')?'☑ Concluído':(p.checklist?.jucpr==='N/A'?'☐ N/A':'☐')}${p.checklist?.codJucpr?` &nbsp;·&nbsp; <strong>Nº Proc:</strong> ${p.checklist.codJucpr}`:' &nbsp;— Nº Proc: _____________'}</td></tr>
+      <tr><td class="lbl">Prefeitura</td><td>${(p.checklist?.prefeitura||'').includes('Concluído')?'☑ Concluído':(p.checklist?.prefeitura==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">DBE</td><td>${(p.checklist?.dbe||'').includes('Concluído')?'☑ Concluído':(p.checklist?.dbe==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Taxa Junta Comercial</td><td>${(p.checklist?.taxaJunta||'').includes('Concluído')?'☑ Concluído':(p.checklist?.taxaJunta==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Assinatura</td><td>${(p.checklist?.assinatura||'').includes('Concluído')?'☑ Concluído':(p.checklist?.assinatura==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Receita Estadual</td><td>${(p.checklist?.recEst||'').includes('Concluído')?'☑ Concluído':(p.checklist?.recEst==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Usuário Receita PR / IE</td><td>${(p.checklist?.usrReceita||'').includes('Concluído')?'☑ Concluído':(p.checklist?.usrReceita==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Procuração RFB</td><td>${(p.checklist?.procuracao||'').includes('Concluído')?'☑ Concluído':(p.checklist?.procuracao==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Vigilância Sanitária</td><td>${(p.checklist?.vigilancia||'').includes('Concluído')?'☑ Concluído':(p.checklist?.vigilancia==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Bombeiros</td><td>${(p.checklist?.bombeiros||'').includes('Concluído')?'☑ Concluído':(p.checklist?.bombeiros==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Alvará</td><td>${(p.checklist?.alvaraCk||'').includes('Concluído')?'☑ Concluído':(p.checklist?.alvaraCk==='N/A'?'☐ N/A':'☐')}</td></tr>
+      <tr><td class="lbl">Usuário NFS / Cadastro</td><td>${(p.checklist?.usrNfs||'').includes('Concluído')?'☑ Concluído':(p.checklist?.usrNfs==='N/A'?'☐ N/A':'☐')}</td></tr>
     </table>
     ${p.obs?`<table><tr><td class="sec">Observações</td></tr><tr><td>${p.obs}</td></tr></table>`:''}
     <div style="margin-top:24px;padding:14px;border:1px solid #ccc;border-radius:6px;background:#f9f9f9">
@@ -1831,6 +1895,14 @@ function Societario() {
                       style={{padding:'4px 12px',borderRadius:8,background:'#f0fafa',color:C.med,border:`1px solid ${C.border}`,cursor:'pointer',fontWeight:600,fontSize:12}}>
                       📄 Ficha
                     </button>
+                    <button onClick={e=>{e.stopPropagation(); if(confirm('Cancelar este processo?')){ atualizarCampo(p.numero,'stProcesso','❌ Cancelado'); const nl=[...lista]; nl[i]={...p,stProcesso:'❌ Cancelado'}; setLista(nl); }}}
+                      style={{padding:'4px 10px',borderRadius:8,background:'#fff8e1',color:'#856404',border:'1px solid #ffe082',cursor:'pointer',fontWeight:600,fontSize:12}}>
+                      ⏸ Cancelar
+                    </button>
+                    <button onClick={e=>{e.stopPropagation(); if(confirm('Excluir este processo permanentemente? Esta ação não pode ser desfeita.')){ apiFetch('excluirSocietario',{dados:JSON.stringify({numero:p.numero})}).then(()=>{ setLista(l=>l.filter((_,j)=>j!==i)); }).catch(err=>alert('Erro: '+err.message)); }}}
+                      style={{padding:'4px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'1px solid #f5c6cb',cursor:'pointer',fontWeight:600,fontSize:12}}>
+                      🗑 Excluir
+                    </button>
                     <span style={{fontSize:18,color:C.muted,transform:isOpen?'rotate(180deg)':'none',display:'inline-block',transition:'transform 0.2s'}}>▾</span>
                   </div>
                 </div>
@@ -1843,14 +1915,20 @@ function Societario() {
                       <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:10}}>✅ Checklist de Etapas</div>
                       {CK_ITEMS.map(ck=>{
                         const val = ckVals[CK_MAP[ck.key]] || '⏳ Pendente';
-                        const isNA = val==='N/A';
                         return (
                           <div key={ck.key} style={{padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
-                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                              <span style={{fontSize:13,color:isNA?C.muted:C.text,textDecoration:isNA?'line-through':'none'}}>{ck.label}</span>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                              <span style={{fontSize:13,color:val==='N/A'?C.muted:C.text,textDecoration:val==='N/A'?'line-through':'none',display:'flex',alignItems:'center',gap:6}}>
+                                <span style={{fontSize:15,color:val.includes('Concluído')?'#2e7d32':val==='N/A'?C.muted:'#aaa'}}>
+                                  {val.includes('Concluído')?'☑':'☐'}
+                                </span>
+                                {ck.label}
+                              </span>
                               <select value={val} onChange={e=>{ atualizarCampo(p.numero,ck.key,e.target.value); const nl=[...lista]; nl[i]={...p,checklist:{...ckVals,[CK_MAP[ck.key]]:e.target.value}}; setLista(nl); }}
-                                style={{padding:'3px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:val.includes('Concluído')?'#1b5e20':val==='N/A'?C.muted:'#856404',background:val.includes('Concluído')?'#e8f5e9':val==='N/A'?'#f5f5f5':'#fff8e1',fontWeight:600}}>
-                                {ST_CK.map(o=><option key={o} value={o}>{o}</option>)}
+                                style={{padding:'3px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:val.includes('Concluído')?'#1b5e20':val==='N/A'?C.muted:'#666',background:val.includes('Concluído')?'#e8f5e9':val==='N/A'?'#f5f5f5':'#fff',fontWeight:600,flexShrink:0}}>
+                                <option value="⏳ Pendente">Pendente</option>
+                                <option value="✅ Concluído">Concluído</option>
+                                <option value="N/A">N/A</option>
                               </select>
                             </div>
                             {ck.hasCode && (
@@ -2297,6 +2375,43 @@ function RelatoriosSocietario() {
   );
 }
 
+function LogoUpload() {
+  const logos = useContext(LogoCtx);
+  function handleFile(key, e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => logos.setLogo(key, ev.target.result);
+    reader.readAsDataURL(file);
+  }
+  const boxStyle = {background:'#f8fffe',border:`1.5px dashed ${C.border}`,borderRadius:10,padding:14,marginBottom:12};
+  return (
+    <div>
+      <div style={boxStyle}>
+        <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:8}}>LOGO 01 — Ficha impressa (topo direito)</div>
+        {logos.ficha && <img src={logos.ficha} style={{height:48,objectFit:'contain',display:'block',marginBottom:8}} alt="Logo ficha"/>}
+        <label style={{padding:'6px 14px',borderRadius:8,background:C.med,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,display:'inline-block'}}>
+          {logos.ficha?'Trocar imagem':'📁 Selecionar imagem'}
+          <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleFile('ficha',e)}/>
+        </label>
+        {logos.ficha&&<button onClick={()=>logos.setLogo('ficha','')} style={{marginLeft:8,padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
+      </div>
+      <div style={boxStyle}>
+        <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:8}}>LOGO 02 — Sidebar do sistema</div>
+        {logos.sidebar && <img src={logos.sidebar} style={{height:48,objectFit:'contain',display:'block',marginBottom:8}} alt="Logo sidebar"/>}
+        <label style={{padding:'6px 14px',borderRadius:8,background:C.med,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,display:'inline-block'}}>
+          {logos.sidebar?'Trocar imagem':'📁 Selecionar imagem'}
+          <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleFile('sidebar',e)}/>
+        </label>
+        {logos.sidebar&&<button onClick={()=>logos.setLogo('sidebar','')} style={{marginLeft:8,padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
+      </div>
+      <div style={{fontSize:11.5,color:C.muted,background:'#f0fafa',borderRadius:8,padding:10}}>
+        ℹ️ As logos ficam salvas apenas durante esta sessão. Para torná-las permanentes, faça upload novamente ao abrir o sistema.
+      </div>
+    </div>
+  );
+}
+
 function Configuracoes() {
   return (
     <div>
@@ -2331,6 +2446,8 @@ function Configuracoes() {
         <div style={{marginTop:20,padding:14,background:'#f0fafa',borderRadius:10,fontSize:12.5,color:C.muted}}>
           ℹ️ Para alterar, edite o <code>Code.gs</code> no Apps Script e reimplante.
         </div>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginTop:24,marginBottom:16}}>Logomarcas</h3>
+        <LogoUpload/>
       </div>
     </div>
   );
@@ -2353,6 +2470,8 @@ function App() {
   const [sideOpen,setSideOpen]   = useState(false);
   const [showWizard,setShowWizard] = useState(false);
   const [refreshKey,setRefreshKey] = useState(0);
+  const [logos, setLogos] = useState({ sidebar:'', ficha:'' });
+  function setLogo(key, val) { setLogos(lg=>({...lg,[key]:val})); }
 
   function abrirNovoContrato() { setShowWizard(true); }
   function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
@@ -2378,6 +2497,7 @@ function App() {
   };
 
   return (
+    <LogoCtx.Provider value={{...logos, setLogo}}>
     <div style={{display:'flex',minHeight:'100vh',background:C.bg}}>
       {/* Sidebar desktop */}
       <aside className="sidebar-desktop" style={{
@@ -2438,6 +2558,7 @@ function App() {
 
       {showWizard && <NovoContratoWizard onClose={fecharWizard} onSalvo={fecharWizard}/>}
     </div>
+    </LogoCtx.Provider>
   );
 }
 
