@@ -128,8 +128,21 @@ function LogoFull() {
 }
 
 function fmtMoeda(v) {
-  const n = parseFloat(v)||0;
+  // Suporta número puro (1234.56) ou formato BR ("1.234,56")
+  const s = String(v||'');
+  const clean = s.includes(',') ? s.replace(/\./g,'').replace(',','.') : s;
+  const n = parseFloat(clean)||0;
   return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+
+// Máscara de moeda: converte dígitos digitados em "1.234,56"
+function maskMoeda(v) {
+  const digits = String(v||'').replace(/\D/g,'');
+  if(!digits) return '';
+  const num = parseInt(digits, 10);
+  const reais = Math.floor(num / 100);
+  const cents = num % 100;
+  return reais.toLocaleString('pt-BR') + ',' + String(cents).padStart(2,'0');
 }
 function badgeStatus(status) {
   const s = String(status||'').toLowerCase();
@@ -200,6 +213,24 @@ function Inp({value, onChange, placeholder, type='text', disabled}) {
       onChange={e=>onChange(e.target.value)}
       style={{...inputStyle, background:disabled?'#f5f5f5':'#fff'}}
     />
+  );
+}
+function MoneyInp({value, onChange, disabled, placeholder='0,00'}) {
+  return (
+    <div style={{display:'flex',alignItems:'stretch',border:`1.5px solid ${C.border}`,borderRadius:8,overflow:'hidden',background:disabled?'#f5f5f5':'#fff',transition:'border-color 0.15s'}}>
+      <span style={{display:'flex',alignItems:'center',padding:'0 10px',fontSize:13,fontWeight:700,color:C.med,background:'#f0fafa',borderRight:`1px solid ${C.border}`,userSelect:'none',flexShrink:0}}>
+        R$
+      </span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value||''}
+        onChange={e=>onChange(maskMoeda(e.target.value))}
+        disabled={disabled}
+        placeholder={placeholder}
+        style={{flex:1,border:'none',outline:'none',padding:'9px 10px',fontSize:13.5,color:C.text,background:'transparent',width:'100%',fontFamily:'inherit'}}
+      />
+    </div>
   );
 }
 function Sel({value,onChange,options,disabled}) {
@@ -342,8 +373,8 @@ function NovoContratoWizard({ onClose, onSalvo }) {
         <Field label="Data de Início" required>
           <Inp value={form.inicio} onChange={v=>set('inicio',v)} type="date"/>
         </Field>
-        <Field label="Honorários (R$)" required>
-          <Inp value={form.honorarios} onChange={v=>set('honorarios',v)} placeholder="0,00"/>
+        <Field label="Honorários" required>
+          <MoneyInp value={form.honorarios} onChange={v=>set('honorarios',v)}/>
         </Field>
         <Field label="Dia de Vencimento" hint="Dia do mês para cobrança">
           <Sel value={form.diaVencimento} onChange={v=>set('diaVencimento',v)}
@@ -376,7 +407,7 @@ function NovoContratoWizard({ onClose, onSalvo }) {
     ['Telefone', form.telefone || '—'],
     ['Endereço', [form.endereco, form.bairro, form.cidadeUF].filter(Boolean).join(', ') || '—'],
     ['Início', form.inicio ? new Date(form.inicio+'T12:00:00').toLocaleDateString('pt-BR') : '—'],
-    ['Honorários', form.honorarios ? fmtMoeda(String(form.honorarios).replace(',','.')) : '—'],
+    ['Honorários', form.honorarios ? fmtMoeda(form.honorarios) : '—'],
     ['Dia de Vencimento', `Dia ${form.diaVencimento}`],
     ['Funcionários', form.qtdFuncionarios],
     ['NFs/mês', form.qtdNF],
@@ -933,10 +964,11 @@ function Assinaturas() {
 // ── Wizard: Novo Processo Societário ─────────────────────────────────────────
 const SOC_FORM_INICIAL = {
   tipo:'Abertura', razao:'', fantasia:'', cnpj:'', cep:'', telefone:'', email:'',
-  socios:[ {nome:'', cpf:'', participacao:'', endereco:''} ],
+  socios:[ {nome:'', cpf:'', participacao:'', endereco:'', estadoCivil:'', regimeBens:''} ],
   endereco:'', capital:'', regime:'Simples Nacional',
-  cnaeCod:'', cnaeDesc:'', cnaeSec:'', objeto:'',
+  cnaeCod:'', cnaeDesc:'', cnaeSec:'', cnaesSecArr:[], objeto:'',
   alvara:'Não', im:'',
+  inscrImobil:'', mtgImovel:'', mtgEstab:'',
   vlServico:'', stPgto:'Pendente', honMensal:'', obs:'',
 };
 
@@ -964,6 +996,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   const [cepErro, setCepErro]         = useState('');
   const [cnaeLoading, setCnaeLoading] = useState(false);
   const [cnaeErro, setCnaeErro]       = useState('');
+  const cnaeTimerRef = useRef(null);
 
   // ── Alteração: dados atuais (da Receita) e checkboxes de campos ───────────
   const [dadosAtual, setDadosAtual] = useState(null);
@@ -996,6 +1029,13 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         cpf: s.cpf_representante_socio||'',
         participacao: s.percentual_capital_social ? s.percentual_capital_social+'%' : '',
         endereco: '',
+        estadoCivil: '',
+        regimeBens: '',
+      }));
+
+      // CNAEs secundários da Receita Federal
+      const secArr = (d.cnaes_secundarios||[]).map(c=>({
+        cod: String(c.codigo||''), desc: cap(c.descricao||''), loading:false, erro:''
       }));
 
       const dadosFetch = {
@@ -1009,11 +1049,12 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                     + (d.uf?` - ${d.uf}`:'')),
         cnaeCod:  String(d.cnae_fiscal||''),
         cnaeDesc: cap(d.cnae_fiscal_descricao||''),
+        cnaesSecArr: secArr,
         regime:   d.opcao_pelo_mei?'MEI':d.opcao_pelo_simples?'Simples Nacional':'',
         capital:  '',
-        cnaeSec:  '',
+        cnaeSec:  secArr.map(c=>c.cod+(c.desc?` — ${c.desc}`:'')).join('; '),
         objeto:   '',
-        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endereco:''}],
+        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endereco:'',estadoCivil:'',regimeBens:''}],
       };
 
       if(form.tipo==='Alteração') {
@@ -1025,8 +1066,8 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     finally{ setCnpjLoading(false); }
   }
 
-  async function buscarCEPSoc() {
-    const c = (form.cep||'').replace(/\D/g,'');
+  async function buscarCEPSoc(cepVal) {
+    const c = (cepVal||form.cep||'').replace(/\D/g,'');
     if(c.length!==8) return;
     setCepLoading(true); setCepErro('');
     try {
@@ -1040,9 +1081,9 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     finally{ setCepLoading(false); }
   }
 
-  async function buscarCNAESoc() {
+  async function buscarCNAESoc(codOverride) {
     setCnaeErro('');
-    const codigo = form.cnaeCod;
+    const codigo = codOverride !== undefined ? codOverride : form.cnaeCod;
     if(!codigo) return;
     setCnaeLoading(true);
     try {
@@ -1054,19 +1095,67 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     finally{ setCnaeLoading(false); }
   }
 
+  function onCnaeCodChange(v) {
+    set('cnaeCod', v);
+    setCnaeErro('');
+    const digits = v.replace(/\D/g,'');
+    if(digits.length>=7) {
+      clearTimeout(cnaeTimerRef.current);
+      cnaeTimerRef.current = setTimeout(()=>buscarCNAESoc(v), 700);
+    }
+  }
+
   // ── Sócios dinâmicos ──────────────────────────────────────────────────────
-  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endereco:''}]})); }
+  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endereco:'',estadoCivil:'',regimeBens:''}]})); }
   function rmSocio(i){ setForm(f=>({...f, socios:f.socios.filter((_,j)=>j!==i)})); }
   function setSocio(i,k,v){ setForm(f=>{ const s=[...f.socios]; s[i]={...s[i],[k]:v}; return {...f,socios:s}; }); }
 
+  // ── CNAEs secundários dinâmicos ────────────────────────────────────────────
+  function addCnaeSec(){ setForm(f=>({...f,cnaesSecArr:[...f.cnaesSecArr,{cod:'',desc:'',loading:false,erro:''}]})); }
+  function rmCnaeSec(i){ setForm(f=>({...f,cnaesSecArr:f.cnaesSecArr.filter((_,j)=>j!==i)})); }
+  function setCnaeSec(i,k,v){ setForm(f=>{ const a=[...f.cnaesSecArr]; a[i]={...a[i],[k]:v}; return {...f,cnaesSecArr:a}; }); }
+  async function buscarCNAESecSoc(i, cod) {
+    setCnaeSec(i,'loading',true); setCnaeSec(i,'erro','');
+    try {
+      const d = await buscarCNAE(cod||form.cnaesSecArr[i].cod);
+      if(d && d.descricao) { setCnaeSec(i,'desc',cap(d.descricao)); }
+      else { setCnaeSec(i,'erro','Não encontrado'); }
+    } catch(e){ setCnaeSec(i,'erro','Não encontrado'); }
+    finally{ setCnaeSec(i,'loading',false); }
+  }
+  function onCNAESecChange(i,v) {
+    setCnaeSec(i,'cod',v); setCnaeSec(i,'erro','');
+    const digits = v.replace(/\D/g,'');
+    if(digits.length>=7) setTimeout(()=>buscarCNAESecSoc(i,v),700);
+  }
+
   function sociosTexto(){
-    return form.socios.map(s=>`${s.nome}${s.cpf?` - CPF ${s.cpf}`:''}${s.participacao?` - ${s.participacao}`:''}${s.endereco?`\n   Endereço: ${s.endereco}`:''}`).join('\n');
+    return form.socios.map(s=>{
+      let linha = s.nome;
+      if(s.cpf) linha += ` - CPF ${s.cpf}`;
+      if(s.participacao) linha += ` - ${s.participacao}`;
+      if(s.estadoCivil) {
+        linha += ` - ${s.estadoCivil}`;
+        if((s.estadoCivil==='Casado'||s.estadoCivil==='União Estável') && s.regimeBens)
+          linha += ` (${s.regimeBens})`;
+      }
+      if(s.endereco) linha += `\n   Endereço: ${s.endereco}`;
+      return linha;
+    }).join('\n');
+  }
+
+  function cnaesSecTexto(){
+    return form.cnaesSecArr.filter(c=>c.cod).map(c=>c.cod+(c.desc?` — ${c.desc}`:'')).join('; ');
   }
 
   async function salvar(){
     setSalvando(true); setErro('');
     try {
-      const dados = { ...form, socios: sociosTexto() };
+      const dados = {
+        ...form,
+        socios: sociosTexto(),
+        cnaeSec: cnaesSecTexto() || form.cnaeSec,
+      };
       if(form.tipo==='Alteração' && dadosAtual) {
         dados.camposAlterados = Object.keys(camposAlt).filter(k=>camposAlt[k]).join(',');
       }
@@ -1136,12 +1225,16 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       <tr><td class="lbl">Telefone</td><td>${s.telefone||'—'}</td></tr>
       <tr><td class="lbl">E-mail</td><td>${s.email||'—'}</td></tr>
       <tr><td class="lbl">Endereço</td><td>${s.endereco||'—'}</td></tr>
+      ${s.inscrImobil?`<tr><td class="lbl">Inscrição Imobiliária</td><td>${s.inscrImobil}</td></tr>`:''}
+      ${s.mtgImovel?`<tr><td class="lbl">Metragem do Imóvel</td><td>${s.mtgImovel} m²</td></tr>`:''}
+      ${s.mtgEstab?`<tr><td class="lbl">Metragem do Estabelecimento</td><td>${s.mtgEstab} m²</td></tr>`:''}
     </table>
     <table>
       <tr><td class="sec" colspan="2">Sócios</td></tr>
       ${form.socios.map((sc,i)=>`
         <tr><td class="lbl">Sócio ${i+1}</td><td>
           ${sc.nome||'—'}${sc.cpf?` &nbsp;·&nbsp; CPF: ${sc.cpf}`:''}${sc.participacao?` &nbsp;·&nbsp; ${sc.participacao}`:''}
+          ${sc.estadoCivil?` &nbsp;·&nbsp; ${sc.estadoCivil}`:''}${(sc.estadoCivil==='Casado'||sc.estadoCivil==='União Estável')&&sc.regimeBens?` (${sc.regimeBens})`:''}
           ${sc.endereco?`<br><small>${sc.endereco}</small>`:''}
         </td></tr>`).join('')}
     </table>
@@ -1157,8 +1250,18 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
-      ${['JUCPR / Junta Comercial','Receita Federal (CNPJ)','Prefeitura (ISS/CCM)','Alvará de Funcionamento','NFS-e (Nota Fiscal Eletrônica)'].map(et=>`
-        <tr><td colspan="2"><span class="ck"></span> ${et}</td></tr>`).join('')}
+      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td><span class="ck"></span> ⏳ Pendente &nbsp;— Nº Proc: _____________</td></tr>
+      <tr><td class="lbl">Prefeitura</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">DBE</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Taxa Junta Comercial</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Assinatura</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Receita Estadual</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Usuário Receita PR / IE</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Procuração RFB</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Vigilância Sanitária</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Bombeiros</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
+      <tr><td class="lbl">Alvará</td><td><span class="ck"></span> ${s.alvara==='Sim'?'⏳ Pendente':'N/A'}</td></tr>
+      <tr><td class="lbl">Usuário NFS / Cadastro</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
     </table>
     ${s.obs?`<table><tr><td class="sec">Observações</td></tr><tr><td>${s.obs}</td></tr></table>`:''}
     <div style="margin-top:24px;padding:14px;border:1px solid #ccc;border-radius:6px;background:#f9f9f9">
@@ -1258,7 +1361,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       <div style={{display:'grid',gridTemplateColumns:'170px 1fr',gap:8,alignItems:'start'}}>
         <Field label="CEP" hint="Auto-preenche endereço">
           <div style={{display:'flex',gap:4,alignItems:'center'}}>
-            <Inp value={form.cep||''} onChange={v=>{ const m=maskCEP(v); set('cep',m); if(m.replace(/\D/g,'').length===8) buscarCEPSoc(); }} placeholder="00000-000" disabled={bloq('endereco')}/>
+            <Inp value={form.cep||''} onChange={v=>{ const m=maskCEP(v); set('cep',m); if(m.replace(/\D/g,'').length===8) buscarCEPSoc(m); }} placeholder="00000-000" disabled={bloq('endereco')}/>
             {cepLoading&&<Spinner size={16}/>}
           </div>
           {cepErro&&<span style={{fontSize:11,color:'#e53935'}}>{cepErro}</span>}
@@ -1267,6 +1370,24 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           <Inp value={form.endereco} onChange={v=>set('endereco',v)} placeholder="Rua, número, bairro, cidade - UF" disabled={bloq('endereco')}/>
         </Field>
       </div>
+
+      {/* Dados do imóvel (quando endereço está sendo alterado ou é abertura) */}
+      {(form.tipo==='Abertura' || (form.tipo==='Alteração' && camposAlt.endereco)) && (
+        <div style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:12,padding:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:8}}>Dados do Imóvel / Estabelecimento</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <Field label="Inscrição Imobiliária">
+              <Inp value={form.inscrImobil||''} onChange={v=>set('inscrImobil',v)} placeholder="Ex: 01.01.147.0020.001"/>
+            </Field>
+            <Field label="Metragem do Imóvel (m²)">
+              <Inp value={form.mtgImovel||''} onChange={v=>set('mtgImovel',v)} placeholder="Ex: 150"/>
+            </Field>
+            <Field label="Metragem do Estabelecimento (m²)">
+              <Inp value={form.mtgEstab||''} onChange={v=>set('mtgEstab',v)} placeholder="Ex: 80"/>
+            </Field>
+          </div>
+        </div>
+      )}
 
       {/* Sócios */}
       {(!dadosAtual || form.tipo!=='Alteração' || camposAlt.socios) ? (
@@ -1294,7 +1415,32 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                   <Field label="Participação %">
                     <Inp value={sc.participacao} onChange={v=>setSocio(i,'participacao',v)} placeholder="50%"/>
                   </Field>
-                  <div/>
+                  <Field label="Estado Civil">
+                    <Sel value={sc.estadoCivil||''}
+                      onChange={v=>{ setSocio(i,'estadoCivil',v); if(v!=='Casado'&&v!=='União Estável') setSocio(i,'regimeBens',''); }}
+                      options={[
+                        {value:'',label:'— Selecione —'},
+                        {value:'Solteiro',label:'Solteiro(a)'},
+                        {value:'Casado',label:'Casado(a)'},
+                        {value:'Divorciado',label:'Divorciado(a)'},
+                        {value:'Viúvo',label:'Viúvo(a)'},
+                        {value:'União Estável',label:'União Estável'},
+                      ]}/>
+                  </Field>
+                  {(sc.estadoCivil==='Casado'||sc.estadoCivil==='União Estável') && (
+                    <Field label="Regime de Bens">
+                      <Sel value={sc.regimeBens||''}
+                        onChange={v=>setSocio(i,'regimeBens',v)}
+                        options={[
+                          {value:'',label:'— Selecione —'},
+                          {value:'Comunhão Parcial de Bens',label:'Comunhão Parcial de Bens'},
+                          {value:'Comunhão Universal de Bens',label:'Comunhão Universal de Bens'},
+                          {value:'Separação Total de Bens',label:'Separação Total de Bens'},
+                          {value:'Separação Obrigatória de Bens',label:'Separação Obrigatória de Bens'},
+                          {value:'Participação Final nos Aquestos',label:'Participação Final nos Aquestos'},
+                        ]}/>
+                    </Field>
+                  )}
                 </div>
                 <Field label="Endereço do Sócio">
                   <Inp value={sc.endereco} onChange={v=>setSocio(i,'endereco',v)} placeholder="Rua, número, bairro, cidade - UF, CEP"/>
@@ -1317,7 +1463,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     <div style={{display:'flex',flexDirection:'column',gap:14}}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <Field label="Capital Social" required hint={isAlt('capital')?`Atual: ${valAtual('capital')}`:''}>
-          <Inp value={form.capital} onChange={v=>set('capital',v)} placeholder="R$ 10.000,00" disabled={bloq('capital')}/>
+          <MoneyInp value={form.capital} onChange={v=>set('capital',v)} disabled={bloq('capital')}/>
         </Field>
         <Field label="Regime Tributário" required hint={isAlt('regime')?`Atual: ${valAtual('regime')}`:''}>
           <Sel value={form.regime} onChange={v=>set('regime',v)} disabled={bloq('regime')}
@@ -1335,25 +1481,47 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         <div style={{fontWeight:600,fontSize:12,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:10}}>
           CNAE Principal {isAlt('cnae')&&<span style={{color:'#856404',fontSize:11,textTransform:'none',fontWeight:400}}>Atual: {valAtual('cnaeCod')} — {valAtual('cnaeDesc')}</span>}
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'170px 1fr auto',gap:8,alignItems:'start'}}>
-          <Field label="Código" hint="Ex: 6201-5/01">
-            <Inp value={form.cnaeCod} onChange={v=>{ set('cnaeCod',v); setCnaeErro(''); }} placeholder="0000-0/00" disabled={bloq('cnae')}/>
+        <div style={{display:'grid',gridTemplateColumns:'170px 1fr',gap:8,alignItems:'start'}}>
+          <Field label="Código" hint={cnaeLoading?'Buscando...':cnaeErro?<span style={{color:'#e53935'}}>{cnaeErro}</span>:'Auto-busca com 7 dígitos'}>
+            <div style={{display:'flex',gap:4,alignItems:'center'}}>
+              <Inp value={form.cnaeCod} onChange={onCnaeCodChange} placeholder="0000-0/00" disabled={bloq('cnae')}/>
+              {cnaeLoading&&<Spinner size={16}/>}
+            </div>
           </Field>
-          <Field label="Descrição" hint={cnaeErro||''}>
-            <Inp value={form.cnaeDesc} onChange={v=>set('cnaeDesc',v)} placeholder="Preenchido ao buscar ou digitar" disabled={bloq('cnae')}/>
+          <Field label="Descrição">
+            <Inp value={form.cnaeDesc} onChange={v=>set('cnaeDesc',v)} placeholder="Preenchido automaticamente" disabled={bloq('cnae')}/>
           </Field>
-          <div style={{paddingTop:22}}>
-            <button onClick={buscarCNAESoc} disabled={cnaeLoading||bloq('cnae')}
-              style={{padding:'9px 14px',borderRadius:8,background:cnaeLoading||bloq('cnae')?'#ccc':C.med,color:'#fff',border:'none',cursor:cnaeLoading||bloq('cnae')?'not-allowed':'pointer',fontWeight:600,fontSize:12,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-              {cnaeLoading?<Spinner size={14}/>:'🔍'} Buscar
-            </button>
-          </div>
         </div>
       </div>
 
-      <Field label="CNAE Secundário" hint={isAlt('cnaeSec')?`Atual: ${valAtual('cnaeSec')}`:''}>
-        <Inp value={form.cnaeSec} onChange={v=>set('cnaeSec',v)} placeholder="Código — Descrição (opcional)" disabled={bloq('cnaeSec')}/>
-      </Field>
+      {/* CNAEs Secundários */}
+      <div style={{background:'#f8fffe',border:`1px solid ${C.border}`,borderRadius:12,padding:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{fontWeight:600,fontSize:12,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px'}}>
+            CNAEs Secundários {isAlt('cnaeSec')&&<span style={{color:'#856404',fontSize:11,textTransform:'none',fontWeight:400}}>Atuais: {dadosAtual.cnaesSecArr&&dadosAtual.cnaesSecArr.length>0?dadosAtual.cnaesSecArr.map(c=>c.cod).join(', '):valAtual('cnaeSec')||'—'}</span>}
+          </div>
+          {!bloq('cnaeSec')&&<button onClick={addCnaeSec} style={{padding:'3px 12px',borderRadius:8,background:C.med,color:'#fff',border:'none',cursor:'pointer',fontSize:12,fontWeight:600}}>+ Adicionar</button>}
+        </div>
+        {form.cnaesSecArr.length===0 && (
+          <div style={{fontSize:12,color:C.muted,fontStyle:'italic'}}>Nenhum CNAE secundário cadastrado. Clique em "+ Adicionar" para incluir.</div>
+        )}
+        {form.cnaesSecArr.map((sc,i)=>(
+          <div key={i} style={{display:'grid',gridTemplateColumns:'160px 1fr auto',gap:8,alignItems:'start',marginBottom:8}}>
+            <Field label={`Cód. Secundário ${i+1}`} hint={sc.loading?'Buscando...':sc.erro?<span style={{color:'#e53935'}}>{sc.erro}</span>:''}>
+              <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                <Inp value={sc.cod} onChange={v=>onCNAESecChange(i,v)} placeholder="0000-0/00" disabled={bloq('cnaeSec')}/>
+                {sc.loading&&<Spinner size={16}/>}
+              </div>
+            </Field>
+            <Field label="Descrição">
+              <Inp value={sc.desc} onChange={v=>setCnaeSec(i,'desc',v)} placeholder="Auto-preenchido" disabled={bloq('cnaeSec')}/>
+            </Field>
+            <div style={{paddingTop:22}}>
+              {!bloq('cnaeSec')&&<button onClick={()=>rmCnaeSec(i)} style={{padding:'8px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:13}}>✕</button>}
+            </div>
+          </div>
+        ))}
+      </div>
       <Field label="Objeto Social" hint={isAlt('objeto')?`Atual: ${valAtual('objeto')}`:''}>
         <textarea value={form.objeto} onChange={e=>set('objeto',e.target.value)}
           disabled={bloq('objeto')}
@@ -1361,8 +1529,8 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           style={{...inputStyle,minHeight:70,resize:'vertical',background:bloq('objeto')?'#f5f5f5':'#fff'}}/>
       </Field>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <Field label="Precisa de Alvará?" hint={isAlt('alvara')?`Atual: ${valAtual('alvara')}`:''}>
-          <Sel value={form.alvara} onChange={v=>set('alvara',v)} disabled={bloq('alvara')}
+        <Field label="Precisa de Alvará?" hint={isAlt('alvara')?`Atual: ${valAtual('alvara')}`:'Sempre ativo'}>
+          <Sel value={form.alvara} onChange={v=>set('alvara',v)}
             options={[{value:'Não',label:'Não'},{value:'Sim',label:'Sim'}]}/>
         </Field>
         {form.alvara==='Sim' && (
@@ -1381,7 +1549,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:10}}>💰 Financeiro do Serviço</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <Field label="Valor do Serviço Societário" hint="Abertura / alteração">
-            <Inp value={form.vlServico} onChange={v=>set('vlServico',v)} placeholder="0,00"/>
+            <MoneyInp value={form.vlServico} onChange={v=>set('vlServico',v)}/>
           </Field>
           <Field label="Status de Pagamento">
             <Sel value={form.stPgto} onChange={v=>set('stPgto',v)}
@@ -1389,7 +1557,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           </Field>
           {form.tipo==='Abertura' && (
             <Field label="Honorário Mensal (novo contrato)" hint="Mensalidade da nova empresa">
-              <Inp value={form.honMensal} onChange={v=>set('honMensal',v)} placeholder="0,00"/>
+              <MoneyInp value={form.honMensal} onChange={v=>set('honMensal',v)}/>
             </Field>
           )}
         </div>
@@ -1451,6 +1619,38 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   );
 }
 
+// ── Componente de edição de observações inline ────────────────────────────────
+function ObsEditor({ numero, obsInicial, onSave, atualizarCampo }) {
+  const [obs, setObs]       = useState(obsInicial);
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo]   = useState(false);
+  const timerRef = useRef(null);
+
+  function handleChange(v) {
+    setObs(v);
+    setSalvo(false);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setSalvando(true);
+      await atualizarCampo(numero, 'obs', v);
+      onSave(v);
+      setSalvando(false); setSalvo(true);
+      setTimeout(()=>setSalvo(false), 2000);
+    }, 1200);
+  }
+
+  return (
+    <div style={{position:'relative'}}>
+      <textarea value={obs} onChange={e=>handleChange(e.target.value)}
+        placeholder="Anotações sobre este processo..."
+        style={{width:'100%',minHeight:64,padding:'6px 8px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:12,resize:'vertical',boxSizing:'border-box',fontFamily:'inherit',color:C.text}}/>
+      <div style={{fontSize:11,color:salvando?'#856404':salvo?'#2e7d32':C.muted,marginTop:2,textAlign:'right'}}>
+        {salvando?'Salvando...':salvo?'✅ Salvo':''}
+      </div>
+    </div>
+  );
+}
+
 // ── Tela principal de Societário ──────────────────────────────────────────────
 function Societario() {
   const [lista,   setLista]   = useState([]);
@@ -1503,6 +1703,9 @@ function Societario() {
       <tr><td class="lbl">Telefone</td><td>${p.telefone||'—'}</td></tr>
       <tr><td class="lbl">E-mail</td><td>${p.email||'—'}</td></tr>
       <tr><td class="lbl">Endereço</td><td>${p.endereco||'—'}</td></tr>
+      ${p.inscrImobil?`<tr><td class="lbl">Inscrição Imobiliária</td><td>${p.inscrImobil}</td></tr>`:''}
+      ${p.mtgImovel?`<tr><td class="lbl">Metragem do Imóvel</td><td>${p.mtgImovel} m²</td></tr>`:''}
+      ${p.mtgEstab?`<tr><td class="lbl">Metragem do Estabelecimento</td><td>${p.mtgEstab} m²</td></tr>`:''}
     </table>
     <table>
       <tr><td class="sec" colspan="2">Sócios</td></tr>
@@ -1520,8 +1723,18 @@ function Societario() {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
-      ${['JUCPR / Junta Comercial','Receita Federal (CNPJ)','Prefeitura (ISS/CCM)','Alvará de Funcionamento','NFS-e (Nota Fiscal Eletrônica)'].map(et=>`
-        <tr><td colspan="2"><span class="ck"></span> ${et}</td></tr>`).join('')}
+      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td><span class="ck"></span> ${p.checklist?.jucpr||'⏳ Pendente'}${p.checklist?.codJucpr?` &nbsp;·&nbsp; <strong>Nº Proc:</strong> ${p.checklist.codJucpr}`:' &nbsp;— Nº Proc: _____________'}</td></tr>
+      <tr><td class="lbl">Prefeitura</td><td><span class="ck"></span> ${p.checklist?.prefeitura||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">DBE</td><td><span class="ck"></span> ${p.checklist?.dbe||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Taxa Junta Comercial</td><td><span class="ck"></span> ${p.checklist?.taxaJunta||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Assinatura</td><td><span class="ck"></span> ${p.checklist?.assinatura||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Receita Estadual</td><td><span class="ck"></span> ${p.checklist?.recEst||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Usuário Receita PR / IE</td><td><span class="ck"></span> ${p.checklist?.usrReceita||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Procuração RFB</td><td><span class="ck"></span> ${p.checklist?.procuracao||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Vigilância Sanitária</td><td><span class="ck"></span> ${p.checklist?.vigilancia||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Bombeiros</td><td><span class="ck"></span> ${p.checklist?.bombeiros||'⏳ Pendente'}</td></tr>
+      <tr><td class="lbl">Alvará</td><td><span class="ck"></span> ${p.checklist?.alvaraCk||'N/A'}</td></tr>
+      <tr><td class="lbl">Usuário NFS / Cadastro</td><td><span class="ck"></span> ${p.checklist?.usrNfs||'⏳ Pendente'}</td></tr>
     </table>
     ${p.obs?`<table><tr><td class="sec">Observações</td></tr><tr><td>${p.obs}</td></tr></table>`:''}
     <div style="margin-top:24px;padding:14px;border:1px solid #ccc;border-radius:6px;background:#f9f9f9">
@@ -1536,13 +1749,25 @@ function Societario() {
   }
 
   const CK_ITEMS = [
-    {key:'ckJucpr',label:'JUCPR / Junta Comercial'},
-    {key:'ckRfb',  label:'Receita Federal (CNPJ)'},
-    {key:'ckPrefeitura',label:'Prefeitura (ISS/CCM)'},
-    {key:'ckAlvara',label:'Alvará de Funcionamento'},
-    {key:'ckNfse', label:'NFS-e'},
+    {key:'ckJucpr',     label:'Junta Comercial (JUCPR)', hasCode:true},
+    {key:'ckPrefeitura',label:'Prefeitura'},
+    {key:'ckDbe',       label:'DBE'},
+    {key:'ckTaxaJunta', label:'Taxa Junta Comercial'},
+    {key:'ckAssinatura',label:'Assinatura'},
+    {key:'ckRecEst',    label:'Receita Estadual'},
+    {key:'ckUsrReceita',label:'Usuário Receita PR / Inscrição Estadual'},
+    {key:'ckProcuracao',label:'Procuração RFB'},
+    {key:'ckVigilancia',label:'Vigilância Sanitária'},
+    {key:'ckBombeiros', label:'Bombeiros'},
+    {key:'ckAlvaraCk',  label:'Alvará'},
+    {key:'ckUsrNfs',    label:'Usuário Emissor NFS / Cadastro Sistema'},
   ];
-  const CK_MAP = {ckJucpr:'jucpr',ckRfb:'rfb',ckPrefeitura:'prefeitura',ckAlvara:'alvara',ckNfse:'nfse'};
+  const CK_MAP = {
+    ckJucpr:'jucpr', ckPrefeitura:'prefeitura', ckDbe:'dbe', ckTaxaJunta:'taxaJunta',
+    ckAssinatura:'assinatura', ckRecEst:'recEst', ckUsrReceita:'usrReceita',
+    ckProcuracao:'procuracao', ckVigilancia:'vigilancia', ckBombeiros:'bombeiros',
+    ckAlvaraCk:'alvaraCk', ckUsrNfs:'usrNfs',
+  };
   const ST_CK  = ['⏳ Pendente','✅ Concluído','N/A'];
 
   function badgeTipo(t){ return t==='Abertura'?{bg:'#e3f2fd',color:'#1565c0'}:{bg:'#f3e5f5',color:'#6a1b9a'}; }
@@ -1620,12 +1845,23 @@ function Societario() {
                         const val = ckVals[CK_MAP[ck.key]] || '⏳ Pendente';
                         const isNA = val==='N/A';
                         return (
-                          <div key={ck.key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
-                            <span style={{fontSize:13,color:isNA?C.muted:C.text,textDecoration:isNA?'line-through':'none'}}>{ck.label}</span>
-                            <select value={val} onChange={e=>{ atualizarCampo(p.numero,ck.key,e.target.value); const nl=[...lista]; nl[i]={...p,checklist:{...ckVals,[CK_MAP[ck.key]]:e.target.value}}; setLista(nl); }}
-                              style={{padding:'3px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:val.includes('Concluído')?'#1b5e20':val==='N/A'?C.muted:'#856404',background:val.includes('Concluído')?'#e8f5e9':val==='N/A'?'#f5f5f5':'#fff8e1',fontWeight:600}}>
-                              {ST_CK.map(o=><option key={o} value={o}>{o}</option>)}
-                            </select>
+                          <div key={ck.key} style={{padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                              <span style={{fontSize:13,color:isNA?C.muted:C.text,textDecoration:isNA?'line-through':'none'}}>{ck.label}</span>
+                              <select value={val} onChange={e=>{ atualizarCampo(p.numero,ck.key,e.target.value); const nl=[...lista]; nl[i]={...p,checklist:{...ckVals,[CK_MAP[ck.key]]:e.target.value}}; setLista(nl); }}
+                                style={{padding:'3px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,color:val.includes('Concluído')?'#1b5e20':val==='N/A'?C.muted:'#856404',background:val.includes('Concluído')?'#e8f5e9':val==='N/A'?'#f5f5f5':'#fff8e1',fontWeight:600}}>
+                                {ST_CK.map(o=><option key={o} value={o}>{o}</option>)}
+                              </select>
+                            </div>
+                            {ck.hasCode && (
+                              <input
+                                type="text"
+                                value={ckVals.codJucpr||''}
+                                onChange={e=>{ atualizarCampo(p.numero,'codJucpr',e.target.value); const nl=[...lista]; nl[i]={...p,checklist:{...ckVals,codJucpr:e.target.value}}; setLista(nl); }}
+                                placeholder="Nº Processo Junta (preencher após protocolo)"
+                                style={{width:'100%',marginTop:4,padding:'4px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:'border-box'}}
+                              />
+                            )}
                           </div>
                         );
                       })}
@@ -1635,25 +1871,40 @@ function Societario() {
                     <div>
                       <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:10}}>📋 Dados</div>
                       {[
-                        ['CNPJ', p.cnpj],['Capital', p.capital],['Regime', p.regime],
-                        ['CNAE', p.cnaeCod?(p.cnaeCod+' — '+p.cnaeDesc):p.cnaeDesc],
-                        ['Endereço', p.endereco],
+                        ['CNPJ',    p.cnpj],
+                        ['Capital', p.capital],
+                        ['Regime',  p.regime],
+                        ['CNAE',    p.cnaeCod?(p.cnaeCod+' — '+p.cnaeDesc):p.cnaeDesc],
+                        ['CNAE Sec',p.cnaeSec],
+                        ['Objeto',  p.objeto],
+                        ['Alvará',  p.alvara],
+                        ['IM',      p.im],
+                        ['Endereço',p.endereco],
+                        ['Insc. Imob.',p.inscrImobil],
+                        ['Imóvel m²', p.mtgImovel?p.mtgImovel+' m²':''],
+                        ['Estab. m²', p.mtgEstab?p.mtgEstab+' m²':''],
                       ].filter(([,v])=>v).map(([l,v])=>(
                         <div key={l} style={{display:'flex',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,fontSize:13}}>
-                          <span style={{fontWeight:600,color:C.muted,minWidth:70}}>{l}</span>
+                          <span style={{fontWeight:600,color:C.muted,minWidth:80,flexShrink:0}}>{l}</span>
                           <span style={{color:C.text,wordBreak:'break-word'}}>{v}</span>
                         </div>
                       ))}
+                      {p.socios && (
+                        <div style={{padding:'4px 0',borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                          <span style={{fontWeight:600,color:C.muted,display:'block',marginBottom:3}}>Sócios</span>
+                          <span style={{color:C.text,whiteSpace:'pre-wrap',fontSize:12}}>{p.socios}</span>
+                        </div>
+                      )}
 
                       <div style={{fontWeight:700,fontSize:13,color:C.dark,marginTop:14,marginBottom:10}}>💰 Financeiro</div>
                       {[
-                        ['Serviço', p.vlServico?fmtMoeda(p.vlServico):'—'],
+                        ['Serviço',   p.vlServico?fmtMoeda(p.vlServico):'—'],
                         ['Honorário', p.honMensal?fmtMoeda(p.honMensal)+'/mês':'—'],
                         ['Pagamento', p.stPgto],
                         ['Conclusão', p.dtConclusao||'—'],
                       ].map(([l,v])=>(
                         <div key={l} style={{display:'flex',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,fontSize:13}}>
-                          <span style={{fontWeight:600,color:C.muted,minWidth:70}}>{l}</span>
+                          <span style={{fontWeight:600,color:C.muted,minWidth:80}}>{l}</span>
                           <span style={{color:C.text}}>{v}</span>
                         </div>
                       ))}
@@ -1684,6 +1935,12 @@ function Societario() {
                             {['🔄 Em Andamento','✅ Concluído','⏸️ Aguardando Cliente','❌ Cancelado'].map(o=><option key={o} value={o}>{o}</option>)}
                           </select>
                         </div>
+                      </div>
+
+                      {/* Observações editável */}
+                      <div style={{marginTop:14}}>
+                        <div style={{fontWeight:600,fontSize:12,color:C.muted,textTransform:'uppercase',letterSpacing:'0.4px',marginBottom:5}}>Observações</div>
+                        <ObsEditor numero={p.numero} obsInicial={p.obs||''} onSave={novaObs=>{ const nl=[...lista]; nl[i]={...p,obs:novaObs}; setLista(nl); }} atualizarCampo={atualizarCampo}/>
                       </div>
                     </div>
                   </div>
@@ -1717,7 +1974,7 @@ function RelatoriosSocietario() {
       .catch(e=>{ setError(e.message); setLoading(false); });
   },[]);
 
-  function parseVl(v){ return parseFloat(String(v||0).replace(',','.'))||0; }
+  function parseVl(v){ const s=String(v||0); return parseFloat(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)||0; }
 
   const filtrado = lista.filter(p=>
     (!filtroTipo   || p.tipo===filtroTipo) &&
@@ -2143,7 +2400,7 @@ function App() {
         }}>➕ Novo Contrato</button>
         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,fontSize:11.5,color:C.muted,paddingLeft:4}}>
           <div style={{fontWeight:600}}>Facilita Contábil</div>
-          <div>v5.0 — Etapa 5</div>
+          <div>v5.1 — Etapa 5 · Checklist + Estado Civil + CNAE Auto</div>
         </div>
       </aside>
 
