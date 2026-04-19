@@ -53,7 +53,8 @@ async function apiPost(dados) {
   } catch(e) { /* silencioso — localStorage é o fallback */ }
 }
 
-// Comprime imagem via Canvas (max 220x80px, JPEG 65%) → base64 pequeno
+// Redimensiona logo via Canvas preservando transparência (PNG)
+// JPEG não suporta alpha — pixels transparentes ficam pretos. Usamos PNG.
 function comprimirLogo(dataUrl) {
   return new Promise(resolve => {
     const img = new Image();
@@ -63,10 +64,12 @@ function comprimirLogo(dataUrl) {
       const canvas = document.createElement('canvas');
       canvas.width  = Math.round(img.width  * ratio);
       canvas.height = Math.round(img.height * ratio);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.65));
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height); // fundo transparente
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/png')); // PNG preserva transparência
     };
-    img.onerror = () => resolve(dataUrl); // fallback sem compressão
+    img.onerror = () => resolve(dataUrl); // fallback sem processamento
     img.src = dataUrl;
   });
 }
