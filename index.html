@@ -175,7 +175,8 @@ function cap(str) {
   return str.toLowerCase().split(' ').map((p,i)=> i>0&&prep.has(p)?p:p.charAt(0).toUpperCase()+p.slice(1)).join(' ');
 }
 
-const LogoCtx = createContext({ sidebar:'', ficha:'', setLogo:()=>{} });
+const LogoCtx  = createContext({ sidebar:'', ficha:'', setLogo:()=>{} });
+const AuthCtx  = createContext({ authUser: null, logout: ()=>{} });
 
 function LogoIcon({ size=36 }) {
   return (
@@ -665,6 +666,116 @@ function NovoContratoWizard({ onClose, onSalvo }) {
 // ═════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ═════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+//  LOGIN / BLOQUEIO DE TELA
+// ═════════════════════════════════════════════════════════════════════════════
+function LoginScreen({ onLogin }) {
+  const [usuario, setUsuario] = useState('');
+  const [senha,   setSenha]   = useState('');
+  const [loading, setLoading] = useState(false);
+  const [erro,    setErro]    = useState('');
+
+  async function entrar(e) {
+    e && e.preventDefault();
+    if (!usuario.trim() || !senha) { setErro('Preencha usuário e senha'); return; }
+    setLoading(true); setErro('');
+    try {
+      const d = await apiFetch('autenticar', { usuario: usuario.trim(), senha });
+      onLogin(d);
+    } catch(err) { setErro('Usuário ou senha incorretos'); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{minHeight:'100vh',background:C.side,display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'Inter,sans-serif'}}>
+      <div style={{background:'#fff',borderRadius:22,padding:'40px 36px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,0.35)'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <LogoIcon size={52}/>
+          <div style={{marginTop:14,fontWeight:800,fontSize:20,color:C.dark,letterSpacing:'-0.3px'}}>Gestão Societária</div>
+          <div style={{fontSize:11,color:C.muted,letterSpacing:'1px',textTransform:'uppercase',marginTop:3,fontWeight:600}}>FSC — Acesso Restrito</div>
+        </div>
+        <form onSubmit={entrar}>
+          <Field label="Usuário">
+            <Inp value={usuario} onChange={setUsuario} placeholder="Seu usuário" disabled={loading}/>
+          </Field>
+          <div style={{marginTop:14}}>
+            <Field label="Senha">
+              <Inp type="password" value={senha} onChange={setSenha} placeholder="••••••••" disabled={loading}/>
+            </Field>
+          </div>
+          {erro && (
+            <div style={{marginTop:12,fontSize:13,color:'#b71c1c',background:'#fdecea',borderRadius:8,padding:'9px 13px',fontWeight:500}}>
+              🔒 {erro}
+            </div>
+          )}
+          <button type="submit" disabled={loading} style={{
+            marginTop:20,width:'100%',padding:'12px',borderRadius:10,
+            border:'none',background:loading?C.muted:C.dark,color:'#fff',
+            cursor:loading?'not-allowed':'pointer',fontWeight:700,fontSize:15,
+            letterSpacing:'-0.1px',transition:'background 0.15s',
+          }}>
+            {loading ? 'Verificando...' : 'Entrar →'}
+          </button>
+        </form>
+        <div style={{marginTop:18,textAlign:'center',fontSize:11.5,color:C.muted}}>
+          Facilita Soluções Contábeis · v6.0
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LockScreen({ user, onUnlock }) {
+  const [senha,   setSenha]   = useState('');
+  const [loading, setLoading] = useState(false);
+  const [erro,    setErro]    = useState('');
+
+  async function desbloquear(e) {
+    e && e.preventDefault();
+    if (!senha) return;
+    setLoading(true); setErro('');
+    try {
+      await apiFetch('autenticar', { usuario: user.usuario, senha });
+      setSenha('');
+      onUnlock();
+    } catch(err) { setErro('Senha incorreta'); }
+    finally { setLoading(false); }
+  }
+
+  const iniciais = (user.usuario||'?').substring(0,2).toUpperCase();
+
+  return (
+    <div style={{minHeight:'100vh',background:C.side,display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'Inter,sans-serif'}}>
+      <div style={{background:'#fff',borderRadius:22,padding:'40px 36px',width:'100%',maxWidth:360,boxShadow:'0 24px 80px rgba(0,0,0,0.35)',textAlign:'center'}}>
+        <div style={{width:64,height:64,borderRadius:'50%',background:`linear-gradient(135deg,${C.med},${C.dark})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:22,margin:'0 auto 14px'}}>
+          {iniciais}
+        </div>
+        <div style={{fontWeight:700,fontSize:17,color:C.dark}}>{user.usuario}</div>
+        <div style={{fontSize:12.5,color:C.muted,marginTop:4,marginBottom:22}}>
+          🔒 Sessão bloqueada por inatividade
+        </div>
+        <form onSubmit={desbloquear}>
+          <Field label="Sua senha para continuar">
+            <Inp type="password" value={senha} onChange={setSenha} placeholder="••••••••" disabled={loading}/>
+          </Field>
+          {erro && (
+            <div style={{marginTop:10,fontSize:13,color:'#b71c1c',background:'#fdecea',borderRadius:8,padding:'8px 12px'}}>
+              {erro}
+            </div>
+          )}
+          <button type="submit" disabled={loading} style={{
+            marginTop:16,width:'100%',padding:'11px',borderRadius:10,
+            border:'none',background:loading?C.muted:C.dark,color:'#fff',
+            cursor:loading?'not-allowed':'pointer',fontWeight:700,fontSize:14,
+          }}>
+            {loading ? 'Verificando...' : 'Desbloquear'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ onNovoContrato, setView }) {
   const [data,setData]           = useState(null);
   const [loading,setLoading]     = useState(true);
@@ -3006,7 +3117,191 @@ function Alvaras() {
   );
 }
 
+// ── Gestão de Usuários (Admin) ────────────────────────────────────────────────
+function GestaoUsuarios() {
+  const { authUser } = useContext(AuthCtx);
+  const [lista,    setLista]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [modal,    setModal]    = useState(null); // null | 'novo' | objeto
+  const [excluindo,setExcluindo]= useState(null);
+  const [excErr,   setExcErr]   = useState('');
+
+  const load = useCallback(async()=>{
+    setLoading(true);
+    try { setLista(await apiFetch('listarUsuarios')); }
+    catch(e){ setLista([]); }
+    finally { setLoading(false); }
+  },[]);
+  useEffect(()=>{ load(); },[]);
+
+  async function confirmarExcluir(id) {
+    setExcErr('');
+    try { await apiFetch('excluirUsuario', { dados: JSON.stringify({id}) }); setExcluindo(null); load(); }
+    catch(e){ setExcErr(e.message); }
+  }
+
+  const thS = {padding:'9px 14px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:12,borderBottom:`1px solid ${C.border}`};
+  const tdS = {padding:'9px 14px',fontSize:13,borderBottom:`1px solid ${C.border}`};
+
+  return (
+    <div style={{marginTop:28}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.dark}}>👥 Gestão de Usuários</h3>
+        <button onClick={()=>setModal('novo')} style={{padding:'7px 16px',borderRadius:8,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:600,fontSize:13}}>
+          + Novo Usuário
+        </button>
+      </div>
+      {loading ? <Spinner size={28}/> : (
+        <div style={{borderRadius:12,border:`1px solid ${C.border}`,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead><tr style={{background:'#f0fafa'}}>
+              <th style={thS}>Usuário</th><th style={thS}>Perfil</th>
+              <th style={thS}>Ativo</th><th style={thS}>Último Acesso</th>
+              <th style={{...thS,textAlign:'center'}}>Ações</th>
+            </tr></thead>
+            <tbody>
+              {!lista.length
+                ? <tr><td colSpan={5} style={{padding:20,textAlign:'center',color:C.muted}}>Nenhum usuário cadastrado</td></tr>
+                : lista.map((u,i)=>(
+                  <tr key={u.id} style={{background:i%2?'#fafffe':'#fff'}}>
+                    <td style={{...tdS,fontWeight:600,color:C.dark}}>{u.usuario}</td>
+                    <td style={tdS}><Badge text={u.perfil} bg={u.perfil==='Admin'?'#e3f2fd':'#f3e5f5'} color={u.perfil==='Admin'?'#1565c0':'#6a1b9a'}/></td>
+                    <td style={tdS}><Badge text={u.ativo} bg={u.ativo==='Sim'?'#e8f5e9':'#fdecea'} color={u.ativo==='Sim'?'#1b5e20':'#b71c1c'}/></td>
+                    <td style={{...tdS,color:C.muted}}>{u.ultAcesso||'—'}</td>
+                    <td style={{...tdS,textAlign:'center'}}>
+                      <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+                        <button onClick={()=>setModal(u)} style={{padding:'3px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,color:C.dark}}>✏️</button>
+                        {u.usuario !== authUser.usuario && (
+                          <button onClick={()=>{setExcluindo(u.id);setExcErr('');}} style={{padding:'3px 10px',borderRadius:6,border:'1px solid #fca5a5',background:'#fef2f2',cursor:'pointer',fontSize:12,fontWeight:600,color:'#b91c1c'}}>🗑️</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      )}
+      {modal && <UsuarioModal usuario={modal==='novo'?null:modal} onClose={()=>setModal(null)} onSalvo={()=>{setModal(null);load();}}/>}
+      {excluindo && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:16}} onClick={()=>setExcluindo(null)}>
+          <div style={{background:'#fff',borderRadius:16,padding:'24px 28px',maxWidth:340,width:'100%'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:700,fontSize:16,color:'#b71c1c',marginBottom:8}}>⚠️ Excluir usuário</div>
+            <div style={{fontSize:13.5,color:C.text,marginBottom:16}}>Tem certeza? Esta ação não pode ser desfeita.</div>
+            {excErr && <div style={{fontSize:12,color:'#b71c1c',marginBottom:10}}>{excErr}</div>}
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setExcluindo(null)} style={{padding:'7px 16px',borderRadius:8,border:`1.5px solid ${C.border}`,background:'#fff',cursor:'pointer',fontWeight:600,fontSize:13}}>Cancelar</button>
+              <button onClick={()=>confirmarExcluir(excluindo)} style={{padding:'7px 18px',borderRadius:8,border:'none',background:'#b71c1c',color:'#fff',cursor:'pointer',fontWeight:700,fontSize:13}}>Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsuarioModal({ usuario, onClose, onSalvo }) {
+  const [form, setForm] = useState({
+    usuario: usuario?.usuario || '',
+    perfil:  usuario?.perfil  || 'Padrão',
+    ativo:   usuario?.ativo   || 'Sim',
+    senha: '', confirmar: '',
+  });
+  const [salvando, setSalvando] = useState(false);
+  const [erro,     setErro]     = useState('');
+  function set(k,v){ setForm(f=>({...f,[k]:v})); }
+
+  async function salvar() {
+    if (!form.usuario.trim())                          { setErro('Informe o usuário'); return; }
+    if (!usuario && !form.senha)                       { setErro('Informe a senha para o novo usuário'); return; }
+    if (form.senha && form.senha !== form.confirmar)   { setErro('As senhas não coincidem'); return; }
+    setSalvando(true); setErro('');
+    try {
+      const payload = { id: usuario?.id, usuario: form.usuario, perfil: form.perfil, ativo: form.ativo, senha: form.senha||undefined };
+      const res = await apiFetch('salvarUsuario', { dados: JSON.stringify(payload) });
+      if (!res.sucesso) { setErro(res.erro||'Erro ao salvar'); return; }
+      onSalvo();
+    } catch(e){ setErro(e.message); }
+    finally { setSalvando(false); }
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.38)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:440,boxShadow:'0 8px 40px rgba(27,105,99,0.18)',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+        <div style={{background:C.dark,padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{color:'#fff',fontSize:15,fontWeight:700}}>{usuario?'✏️ Editar Usuário':'➕ Novo Usuário'}</div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,width:30,height:30,cursor:'pointer',fontSize:18}}>×</button>
+        </div>
+        <div style={{padding:'20px 22px'}}>
+          <Field label="Usuário" required><Inp value={form.usuario} onChange={v=>set('usuario',v)} placeholder="nome.sobrenome"/></Field>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:12}}>
+            <Field label="Perfil">
+              <Sel value={form.perfil} onChange={v=>set('perfil',v)} options={[{value:'Padrão',label:'Padrão'},{value:'Admin',label:'Admin'}]}/>
+            </Field>
+            <Field label="Ativo">
+              <Sel value={form.ativo} onChange={v=>set('ativo',v)} options={[{value:'Sim',label:'Sim'},{value:'Não',label:'Não'}]}/>
+            </Field>
+          </div>
+          <div style={{marginTop:14,padding:12,background:'#f0fafa',borderRadius:8}}>
+            <div style={{fontSize:11.5,color:C.muted,fontWeight:600,marginBottom:8}}>{usuario?'REDEFINIR SENHA (deixe em branco para manter)':'SENHA *'}</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <Field label="Nova Senha"><Inp type="password" value={form.senha} onChange={v=>set('senha',v)} placeholder="••••••••"/></Field>
+              <Field label="Confirmar"><Inp type="password" value={form.confirmar} onChange={v=>set('confirmar',v)} placeholder="••••••••"/></Field>
+            </div>
+          </div>
+          {erro && <div style={{marginTop:10,fontSize:13,color:'#b71c1c',background:'#fdecea',borderRadius:8,padding:'8px 12px'}}>{erro}</div>}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:18}}>
+            <button onClick={onClose} style={{padding:'8px 18px',borderRadius:8,border:`1.5px solid ${C.border}`,background:'#fff',cursor:'pointer',fontWeight:600,fontSize:13,color:C.muted}}>Cancelar</button>
+            <button onClick={salvar} disabled={salvando} style={{padding:'8px 22px',borderRadius:8,border:'none',background:salvando?C.muted:C.dark,color:'#fff',cursor:salvando?'not-allowed':'pointer',fontWeight:700,fontSize:13}}>
+              {salvando?'Salvando...':'💾 Salvar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Alterar própria senha ─────────────────────────────────────────────────────
+function AlterarSenha() {
+  const { authUser } = useContext(AuthCtx);
+  const [form, setForm] = useState({ senhaAtual:'', senhaNova:'', confirmar:'' });
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState('');
+  function set(k,v){ setForm(f=>({...f,[k]:v})); }
+
+  async function salvar() {
+    if (!form.senhaAtual || !form.senhaNova) { setMsg('❌ Preencha todos os campos'); return; }
+    if (form.senhaNova !== form.confirmar)   { setMsg('❌ As senhas novas não coincidem'); return; }
+    if (form.senhaNova.length < 4)           { setMsg('❌ Senha mínima de 4 caracteres'); return; }
+    setSalvando(true); setMsg('');
+    try {
+      const res = await apiFetch('alterarSenha', { dados: JSON.stringify({ usuario: authUser.usuario, senhaAtual: form.senhaAtual, senhaNova: form.senhaNova }) });
+      if (res.sucesso) { setMsg('✅ Senha alterada com sucesso!'); setForm({senhaAtual:'',senhaNova:'',confirmar:''}); }
+      else setMsg('❌ ' + (res.erro||'Erro ao alterar senha'));
+    } catch(e){ setMsg('❌ ' + e.message); }
+    finally { setSalvando(false); }
+  }
+
+  return (
+    <div style={{marginTop:28}}>
+      <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginBottom:14}}>🔑 Alterar Minha Senha</h3>
+      <div style={{maxWidth:380}}>
+        <Field label="Senha Atual"><Inp type="password" value={form.senhaAtual} onChange={v=>set('senhaAtual',v)} placeholder="••••••••"/></Field>
+        <div style={{marginTop:10}}><Field label="Nova Senha"><Inp type="password" value={form.senhaNova} onChange={v=>set('senhaNova',v)} placeholder="••••••••"/></Field></div>
+        <div style={{marginTop:10}}><Field label="Confirmar Nova Senha"><Inp type="password" value={form.confirmar} onChange={v=>set('confirmar',v)} placeholder="••••••••"/></Field></div>
+        {msg && <div style={{marginTop:10,fontSize:13,color:msg.startsWith('✅')?'#1b5e20':'#b71c1c',background:msg.startsWith('✅')?'#e8f5e9':'#fdecea',borderRadius:8,padding:'8px 12px'}}>{msg}</div>}
+        <button onClick={salvar} disabled={salvando} style={{marginTop:14,padding:'9px 22px',borderRadius:8,border:'none',background:salvando?C.muted:C.dark,color:'#fff',cursor:salvando?'not-allowed':'pointer',fontWeight:700,fontSize:13}}>
+          {salvando?'Salvando...':'Alterar Senha'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Configuracoes() {
+  const { authUser } = useContext(AuthCtx);
   return (
     <div>
       <h2 style={{fontSize:20,fontWeight:700,color:C.dark,marginBottom:20}}>Configurações</h2>
@@ -3042,6 +3337,8 @@ function Configuracoes() {
         </div>
         <h3 style={{fontSize:15,fontWeight:700,color:C.dark,marginTop:24,marginBottom:16}}>Logomarcas</h3>
         <LogoUpload/>
+        <AlterarSenha/>
+        {authUser?.perfil === 'Admin' && <GestaoUsuarios/>}
       </div>
     </div>
   );
@@ -3108,6 +3405,7 @@ const NAV_GROUPS = [
 ];
 
 function SidebarNav({ view, setView, abrirNovoContrato, onClose }) {
+  const { authUser, logout } = useContext(AuthCtx);
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       {/* Logo */}
@@ -3164,30 +3462,87 @@ function SidebarNav({ view, setView, abrirNovoContrato, onClose }) {
         </button>
       </div>
 
-      {/* Footer / usuário */}
-      <div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:10}}>
-        <div style={{
-          width:30,height:30,borderRadius:'50%',flexShrink:0,
-          background:'linear-gradient(135deg,#3E9C95,#1B6963)',
-          display:'flex',alignItems:'center',justifyContent:'center',
-          color:'#fff',fontWeight:700,fontSize:12,letterSpacing:'-0.2px'
-        }}>RG</div>
-        <div style={{minWidth:0}}>
-          <div style={{fontSize:12.5,fontWeight:600,color:C.sideText,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Renato Garcia</div>
-          <div style={{fontSize:10.5,color:C.sideMuted}}>v5.3</div>
+      {/* Footer / usuário + sair */}
+      <div style={{padding:'10px 12px',borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:8}}>
+          <div style={{
+            width:32,height:32,borderRadius:'50%',flexShrink:0,
+            background:`linear-gradient(135deg,${C.med},${C.dark})`,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            color:'#fff',fontWeight:700,fontSize:12,
+          }}>
+            {(authUser?.usuario||'?').substring(0,2).toUpperCase()}
+          </div>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:12.5,fontWeight:600,color:C.sideText,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{authUser?.usuario||'—'}</div>
+            <div style={{fontSize:10.5,color:C.sideMuted}}>{authUser?.perfil||''} · v6.0</div>
+          </div>
         </div>
+        <button onClick={()=>{ logout(); onClose&&onClose(); }} style={{
+          width:'100%',padding:'7px',borderRadius:7,
+          background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
+          color:C.sideMuted,cursor:'pointer',fontSize:12,fontWeight:600,
+          display:'flex',alignItems:'center',justifyContent:'center',gap:6,
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Sair
+        </button>
       </div>
     </div>
   );
 }
 
+const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutos
+
 function App() {
+  // ── Auth state ──────────────────────────────────────────────────────────────
+  const [authUser, setAuthUser] = useState(() => {
+    try { const s = sessionStorage.getItem('gs_fsc_auth'); return s ? JSON.parse(s) : null; }
+    catch { return null; }
+  });
+  const [locked, setLocked] = useState(false);
+  const timerRef = useRef(null);
+
+  const resetTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setLocked(true), INACTIVITY_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
+    const evts = ['mousemove','keydown','click','scroll','touchstart'];
+    evts.forEach(ev => document.addEventListener(ev, resetTimer, {passive:true}));
+    resetTimer();
+    return () => {
+      evts.forEach(ev => document.removeEventListener(ev, resetTimer));
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [authUser, resetTimer]);
+
+  function handleLogin(user) {
+    sessionStorage.setItem('gs_fsc_auth', JSON.stringify(user));
+    setAuthUser(user); setLocked(false); resetTimer();
+  }
+  function handleLogout() {
+    sessionStorage.removeItem('gs_fsc_auth');
+    setAuthUser(null); setLocked(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }
+
+  // ── Render auth guards ──────────────────────────────────────────────────────
+  if (!authUser) return <LoginScreen onLogin={handleLogin}/>;
+  if (locked)    return <LockScreen user={authUser} onUnlock={()=>{ setLocked(false); resetTimer(); }}/>;
+
+  // ── App state (só roda após autenticado) ────────────────────────────────────
   const [view,setView]             = useState('dashboard');
   const [sideOpen,setSideOpen]     = useState(false);
   const [showWizard,setShowWizard] = useState(false);
   const [refreshKey,setRefreshKey] = useState(0);
   const [logos, setLogos] = useState(() => {
-    // Carrega logos salvas no localStorage ao iniciar
     try {
       return {
         sidebar: localStorage.getItem('facilita_logo_sidebar') || '',
@@ -3197,7 +3552,6 @@ function App() {
   });
   function setLogo(key, val) {
     setLogos(lg => ({ ...lg, [key]: val }));
-    // Persiste no localStorage para sobreviver ao refresh
     try {
       if(val) localStorage.setItem(`facilita_logo_${key}`, val);
       else    localStorage.removeItem(`facilita_logo_${key}`);
@@ -3207,17 +3561,13 @@ function App() {
   function abrirNovoContrato() { setShowWizard(true); }
   function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
 
-  // Carrega logos do servidor ao abrir (sobrepõe localStorage se o servidor tiver algo)
   useEffect(() => {
     Promise.all([
       apiFetch('obterConfig', {chave:'logo_ficha'}),
       apiFetch('obterConfig', {chave:'logo_sidebar'}),
     ]).then(([ficha, sidebar]) => {
-      setLogos(l => ({
-        ficha:   ficha   || l.ficha,
-        sidebar: sidebar || l.sidebar,
-      }));
-    }).catch(()=>{}); // silencioso — usa localStorage como fallback
+      setLogos(l => ({ ficha: ficha||l.ficha, sidebar: sidebar||l.sidebar }));
+    }).catch(()=>{});
   }, []);
 
   const renderView = () => {
@@ -3234,6 +3584,7 @@ function App() {
   const SIDEBAR_W = 240;
 
   return (
+    <AuthCtx.Provider value={{authUser, logout: handleLogout}}>
     <LogoCtx.Provider value={{...logos, setLogo}}>
     <div style={{display:'flex',minHeight:'100vh',background:C.bg}}>
 
@@ -3274,6 +3625,7 @@ function App() {
       {showWizard && <NovoContratoWizard onClose={fecharWizard} onSalvo={fecharWizard}/>}
     </div>
     </LogoCtx.Provider>
+    </AuthCtx.Provider>
   );
 }
 
