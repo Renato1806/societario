@@ -233,6 +233,45 @@ function badgeAssin(status) {
   if(!status||status==='')               return {bg:'#f5f5f5',color:'#888',  label:'—'};
   return {bg:'#e3f2fd',color:'#1565c0',label:status};
 }
+// ── Helpers de data ───────────────────────────────────────────────────────────
+// Converte yyyy-MM-dd (input type=date) → dd/MM/yyyy (armazenamento BR)
+function isoToBR(iso) {
+  if (!iso) return '';
+  const p = iso.split('-');
+  if (p.length !== 3) return iso;
+  return `${p[2]}/${p[1]}/${p[0]}`;
+}
+// Converte dd/MM/yyyy → yyyy-MM-dd (para input type=date)
+function brToISO(br) {
+  if (!br) return '';
+  const p = br.split('/');
+  if (p.length !== 3) return '';
+  return `${p[2]}-${p[1]}-${p[0]}`;
+}
+
+// ── Status e badge do Alvará ──────────────────────────────────────────────────
+function calcStatusAlvara(a) {
+  const bombOk = a.stBombeiros === 'Aprovado' || a.stBombeiros === 'Dispensado';
+  const vigOk  = a.stVigilancia === 'Aprovado' || a.stVigilancia === 'Dispensado';
+  if (!bombOk || !vigOk || !a.dtVencimento)
+    return { label:'Em andamento', bg:'#e3f2fd', color:'#1565c0' };
+  const p = a.dtVencimento.split('/');
+  if (p.length !== 3) return { label:'Em andamento', bg:'#e3f2fd', color:'#1565c0' };
+  const vcto = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const diff = Math.floor((vcto - hoje)/(1000*60*60*24));
+  if (diff < 0)   return { label:'Vencido',    bg:'#fdecea', color:'#b71c1c' };
+  if (diff <= 60) return { label:'A renovar',  bg:'#fff8e1', color:'#856404' };
+  return { label:'Vigente', bg:'#e8f5e9', color:'#1b5e20' };
+}
+function badgeEtapa(status) {
+  if (!status || status === 'Pendente')   return { bg:'#f5f5f5', color:'#757575' };
+  if (status === 'Em andamento') return { bg:'#e3f2fd', color:'#1565c0' };
+  if (status === 'Aprovado')     return { bg:'#e8f5e9', color:'#1b5e20' };
+  if (status === 'Dispensado')   return { bg:'#f3e5f5', color:'#6a1b9a' };
+  return { bg:'#f5f5f5', color:'#888' };
+}
+
 function Badge({text,bg,color}) {
   return <span style={{display:'inline-block',padding:'2px 10px',borderRadius:20,fontSize:11.5,fontWeight:600,background:bg,color,whiteSpace:'nowrap'}}>{text}</span>;
 }
@@ -626,10 +665,11 @@ function NovoContratoWizard({ onClose, onSalvo }) {
 // ═════════════════════════════════════════════════════════════════════════════
 //  DASHBOARD
 // ═════════════════════════════════════════════════════════════════════════════
-function Dashboard({ onNovoContrato }) {
-  const [data,setData]       = useState(null);
-  const [loading,setLoading] = useState(true);
-  const [error,setError]     = useState(null);
+function Dashboard({ onNovoContrato, setView }) {
+  const [data,setData]           = useState(null);
+  const [loading,setLoading]     = useState(true);
+  const [error,setError]         = useState(null);
+  const [alvaras,setAlvaras]     = useState([]);
 
   const load = useCallback(async()=>{
     setLoading(true);setError(null);
@@ -638,6 +678,9 @@ function Dashboard({ onNovoContrato }) {
     finally{ setLoading(false); }
   },[]);
   useEffect(()=>{ load(); },[]);
+  useEffect(()=>{
+    apiFetch('listarAlvaras').then(d=>setAlvaras(d||[])).catch(()=>{});
+  },[]);
 
   if(loading) return <Spinner/>;
   if(error)   return <ErrMsg msg={error} onRetry={load}/>;
@@ -651,6 +694,30 @@ function Dashboard({ onNovoContrato }) {
           ➕ Novo Contrato
         </button>
       </div>
+      {(() => {
+        const alertas = alvaras.filter(a => { const st=calcStatusAlvara(a); return st.label==='Vencido'||st.label==='A renovar'; });
+        if (!alertas.length) return null;
+        return (
+          <div onClick={()=>setView&&setView('alvaras')} style={{
+            background:'#fff8e1',border:'1px solid #ffc107',borderRadius:12,
+            padding:'12px 18px',marginBottom:18,cursor:'pointer',
+            display:'flex',alignItems:'center',gap:12,
+          }}>
+            <span style={{fontSize:20}}>🔔</span>
+            <div>
+              <div style={{fontWeight:700,color:'#856404',fontSize:13.5}}>
+                {alertas.filter(a=>calcStatusAlvara(a).label==='Vencido').length} alvará(s) vencido(s)
+                {alertas.filter(a=>calcStatusAlvara(a).label==='A renovar').length > 0 &&
+                  ` · ${alertas.filter(a=>calcStatusAlvara(a).label==='A renovar').length} a vencer em 60 dias`}
+              </div>
+              <div style={{fontSize:12,color:'#a06000',marginTop:2}}>
+                {alertas.slice(0,3).map(a=>a.empresa).join(' · ')}{alertas.length>3?' · ...':''}
+              </div>
+            </div>
+            <span style={{marginLeft:'auto',fontSize:12,color:'#856404',fontWeight:600}}>Ver Alvarás →</span>
+          </div>
+        );
+      })()}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:14,marginBottom:28}}>
         <MetricCard icon="👥" label="Clientes Ativos"     value={data.ativos}            accent={C.dark}/>
         <MetricCard icon="⚠️" label="Vencendo (60d)"     value={data.vencendo}          accent="#856404"/>
@@ -2596,6 +2663,318 @@ function LogoUpload() {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  ALVARÁS E LICENÇAS
+// ═════════════════════════════════════════════════════════════════════════════
+const ST_ETAPA_OPTS = [
+  {value:'Pendente',     label:'Pendente'},
+  {value:'Em andamento', label:'Em andamento'},
+  {value:'Aprovado',     label:'Aprovado'},
+  {value:'Dispensado',   label:'Dispensado'},
+];
+
+const ALVARA_VAZIO = {
+  empresa:'',
+  stBombeiros:'Pendente', dtEntBomb:'', dtAprovBomb:'',
+  stVigilancia:'Pendente', dtEntVig:'', dtAprovVig:'',
+  numAlvara:'', dtEmissao:'', dtVencimento:'',
+  obs:'',
+};
+
+function AlvaraModal({ alvara, onClose, onSalvo }) {
+  // form usa ISO internamente (yyyy-MM-dd) para input type=date
+  const toForm = (a) => ({
+    ...ALVARA_VAZIO, ...a,
+    dtEntBomb:    brToISO(a.dtEntBomb),
+    dtAprovBomb:  brToISO(a.dtAprovBomb),
+    dtEntVig:     brToISO(a.dtEntVig),
+    dtAprovVig:   brToISO(a.dtAprovVig),
+    dtEmissao:    brToISO(a.dtEmissao),
+    dtVencimento: brToISO(a.dtVencimento),
+  });
+
+  const [form, setForm]       = useState(alvara ? toForm(alvara) : {...ALVARA_VAZIO});
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro]       = useState('');
+
+  function set(k, v) { setForm(f=>({...f,[k]:v})); }
+
+  async function salvar() {
+    if (!form.empresa.trim()) { setErro('Informe o nome da empresa'); return; }
+    setSalvando(true); setErro('');
+    try {
+      const payload = {
+        ...form,
+        dtEntBomb:    isoToBR(form.dtEntBomb),
+        dtAprovBomb:  isoToBR(form.dtAprovBomb),
+        dtEntVig:     isoToBR(form.dtEntVig),
+        dtAprovVig:   isoToBR(form.dtAprovVig),
+        dtEmissao:    isoToBR(form.dtEmissao),
+        dtVencimento: isoToBR(form.dtVencimento),
+      };
+      const action = alvara ? 'atualizarAlvara' : 'salvarAlvara';
+      await apiFetch(action, { dados: JSON.stringify(payload) });
+      onSalvo();
+    } catch(e) { setErro(e.message); }
+    finally { setSalvando(false); }
+  }
+
+  const secStyle = {
+    fontSize:11,fontWeight:700,color:C.dark,textTransform:'uppercase',
+    letterSpacing:'0.6px',padding:'10px 0 6px',borderBottom:`1px solid ${C.border}`,
+    marginBottom:10, marginTop:6,
+  };
+  const rowStyle = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 };
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.38)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:580,boxShadow:'0 8px 40px rgba(27,105,99,0.18)',overflow:'hidden',maxHeight:'92vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{background:C.dark,padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div style={{color:'#fff',fontSize:16,fontWeight:700}}>
+            {alvara ? '✏️ Editar Alvará' : '➕ Nova Empresa'}
+          </div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,width:30,height:30,cursor:'pointer',fontSize:18,lineHeight:'30px',textAlign:'center'}}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{overflowY:'auto',flex:1,padding:'16px 20px 20px'}}>
+          {/* Empresa */}
+          <Field label="Empresa" required>
+            <Inp value={form.empresa} onChange={v=>set('empresa',v)} placeholder="Nome da empresa"/>
+          </Field>
+
+          {/* Etapa 1 — Bombeiros */}
+          <div style={secStyle}>Etapa 1 — Corpo de Bombeiros</div>
+          <Field label="Status">
+            <Sel value={form.stBombeiros} onChange={v=>set('stBombeiros',v)} options={ST_ETAPA_OPTS}/>
+          </Field>
+          {form.stBombeiros !== 'Dispensado' && (
+            <div style={{...rowStyle, marginTop:10}}>
+              <Field label="Data de Entrada">
+                <Inp type="date" value={form.dtEntBomb} onChange={v=>set('dtEntBomb',v)}/>
+              </Field>
+              <Field label="Data de Aprovação">
+                <Inp type="date" value={form.dtAprovBomb} onChange={v=>set('dtAprovBomb',v)}/>
+              </Field>
+            </div>
+          )}
+
+          {/* Etapa 2 — Vigilância */}
+          <div style={secStyle}>Etapa 2 — Vigilância Sanitária</div>
+          <Field label="Status">
+            <Sel value={form.stVigilancia} onChange={v=>set('stVigilancia',v)} options={ST_ETAPA_OPTS}/>
+          </Field>
+          {form.stVigilancia !== 'Dispensado' && (
+            <div style={{...rowStyle, marginTop:10}}>
+              <Field label="Data de Entrada">
+                <Inp type="date" value={form.dtEntVig} onChange={v=>set('dtEntVig',v)}/>
+              </Field>
+              <Field label="Data de Aprovação">
+                <Inp type="date" value={form.dtAprovVig} onChange={v=>set('dtAprovVig',v)}/>
+              </Field>
+            </div>
+          )}
+
+          {/* Etapa 3 — Alvará */}
+          <div style={secStyle}>Etapa 3 — Alvará de Funcionamento</div>
+          <div style={rowStyle}>
+            <Field label="Nº do Alvará">
+              <Inp value={form.numAlvara} onChange={v=>set('numAlvara',v)} placeholder="Número do documento"/>
+            </Field>
+            <Field label="Data de Emissão">
+              <Inp type="date" value={form.dtEmissao} onChange={v=>set('dtEmissao',v)}/>
+            </Field>
+          </div>
+          <div style={{marginTop:10}}>
+            <Field label="Data de Vencimento">
+              <Inp type="date" value={form.dtVencimento} onChange={v=>set('dtVencimento',v)}/>
+            </Field>
+          </div>
+
+          {/* Observações */}
+          <div style={{marginTop:14}}>
+            <Field label="Observações">
+              <textarea value={form.obs} onChange={e=>set('obs',e.target.value)} rows={2}
+                style={{...inputStyle, resize:'vertical', minHeight:56}}
+                placeholder="Anotações adicionais..."/>
+            </Field>
+          </div>
+
+          {erro && <div style={{marginTop:10,fontSize:13,color:'#b71c1c',background:'#fdecea',borderRadius:8,padding:'8px 12px'}}>{erro}</div>}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:'12px 20px',borderTop:`1px solid ${C.border}`,display:'flex',justifyContent:'flex-end',gap:10,flexShrink:0}}>
+          <button onClick={onClose} style={{padding:'8px 18px',borderRadius:8,border:`1.5px solid ${C.border}`,background:'#fff',cursor:'pointer',fontWeight:600,fontSize:13,color:C.muted}}>
+            Cancelar
+          </button>
+          <button onClick={salvar} disabled={salvando} style={{padding:'8px 22px',borderRadius:8,border:'none',background:salvando?C.muted:C.dark,color:'#fff',cursor:salvando?'not-allowed':'pointer',fontWeight:700,fontSize:13}}>
+            {salvando ? 'Salvando...' : '💾 Salvar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Alvaras() {
+  const [lista, setLista]         = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [filtroEmpresa, setFiltroEmpresa] = useState('');
+  const [filtroStatus,  setFiltroStatus]  = useState('');
+  const [modal, setModal]         = useState(null); // null | 'novo' | objeto
+  const [excluindo, setExcluindo] = useState(null); // id a excluir
+  const [excErr, setExcErr]       = useState('');
+
+  const load = useCallback(async()=>{
+    setLoading(true); setError(null);
+    try { const d=await apiFetch('listarAlvaras'); setLista(d||[]); }
+    catch(e){ setError(e.message); }
+    finally { setLoading(false); }
+  },[]);
+  useEffect(()=>{ load(); },[]);
+
+  const listaFiltrada = lista.filter(a=>
+    (!filtroEmpresa || a.empresa.toLowerCase().includes(filtroEmpresa.toLowerCase())) &&
+    (!filtroStatus  || calcStatusAlvara(a).label === filtroStatus)
+  );
+
+  async function confirmarExcluir(id) {
+    setExcErr('');
+    try {
+      await apiFetch('excluirAlvara', { dados: JSON.stringify({id}) });
+      setExcluindo(null);
+      load();
+    } catch(e) { setExcErr(e.message); }
+  }
+
+  const thStyle = {padding:'10px 14px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:12,borderBottom:`1px solid ${C.border}`};
+  const tdStyle = {padding:'10px 14px',fontSize:13,borderBottom:`1px solid ${C.border}`};
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:10}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>Alvarás e Licenças</h2>
+          <p style={{fontSize:13,color:C.muted,marginTop:2}}>Controle de Bombeiros · Vigilância Sanitária · Alvará de Funcionamento</p>
+        </div>
+        <button onClick={()=>setModal('novo')} style={{padding:'9px 20px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13}}>
+          ➕ Nova Empresa
+        </button>
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+        <input
+          value={filtroEmpresa} onChange={e=>setFiltroEmpresa(e.target.value)}
+          placeholder="🔍 Buscar empresa..."
+          style={{...inputStyle,maxWidth:280,flex:1}}
+        />
+        <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)}
+          style={{...inputStyle,maxWidth:200}}>
+          <option value="">Todos os status</option>
+          <option>Em andamento</option>
+          <option>Vigente</option>
+          <option>A renovar</option>
+          <option>Vencido</option>
+        </select>
+      </div>
+
+      {/* Conteúdo */}
+      {loading ? <Spinner/> : error ? <ErrMsg msg={error} onRetry={load}/> : (
+        <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.07)',overflow:'hidden'}}>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{background:'#f0fafa'}}>
+                  <th style={thStyle}>Empresa</th>
+                  <th style={thStyle}>Bombeiros</th>
+                  <th style={thStyle}>Vigilância</th>
+                  <th style={thStyle}>Nº Alvará</th>
+                  <th style={thStyle}>Vencimento</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={{...thStyle,textAlign:'center'}}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!listaFiltrada.length ? (
+                  <tr><td colSpan={7} style={{padding:30,textAlign:'center',color:C.muted}}>
+                    {lista.length ? 'Nenhum resultado para os filtros.' : 'Nenhuma empresa cadastrada ainda.'}
+                  </td></tr>
+                ) : listaFiltrada.map((a,i)=>{
+                  const st   = calcStatusAlvara(a);
+                  const bBomb= badgeEtapa(a.stBombeiros);
+                  const bVig = badgeEtapa(a.stVigilancia);
+                  return (
+                    <tr key={a.id} style={{background:i%2?'#fafffe':'#fff'}}>
+                      <td style={{...tdStyle,fontWeight:600,color:C.dark,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.empresa}</td>
+                      <td style={tdStyle}><Badge text={a.stBombeiros||'Pendente'} bg={bBomb.bg} color={bBomb.color}/></td>
+                      <td style={tdStyle}><Badge text={a.stVigilancia||'Pendente'} bg={bVig.bg} color={bVig.color}/></td>
+                      <td style={{...tdStyle,color:C.muted}}>{a.numAlvara||'—'}</td>
+                      <td style={{...tdStyle,color:C.muted}}>{a.dtVencimento||'—'}</td>
+                      <td style={tdStyle}><Badge text={st.label} bg={st.bg} color={st.color}/></td>
+                      <td style={{...tdStyle,textAlign:'center'}}>
+                        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+                          <button onClick={()=>setModal(a)}
+                            style={{padding:'4px 12px',borderRadius:7,border:`1px solid ${C.border}`,background:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,color:C.dark}}>
+                            ✏️ Editar
+                          </button>
+                          <button onClick={()=>{setExcluindo(a.id);setExcErr('');}}
+                            style={{padding:'4px 10px',borderRadius:7,border:'1px solid #fca5a5',background:'#fef2f2',cursor:'pointer',fontSize:12,fontWeight:600,color:'#b91c1c'}}>
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {listaFiltrada.length > 0 && (
+            <div style={{padding:'10px 16px',borderTop:`1px solid ${C.border}`,fontSize:12,color:C.muted}}>
+              {listaFiltrada.length} empresa(s) · {listaFiltrada.filter(a=>calcStatusAlvara(a).label==='Vencido').length} vencido(s) · {listaFiltrada.filter(a=>calcStatusAlvara(a).label==='A renovar').length} a vencer
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal editar/novo */}
+      {modal && (
+        <AlvaraModal
+          alvara={modal === 'novo' ? null : modal}
+          onClose={()=>setModal(null)}
+          onSalvo={()=>{ setModal(null); load(); }}
+        />
+      )}
+
+      {/* Confirmação de exclusão */}
+      {excluindo && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.35)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:16}} onClick={()=>setExcluindo(null)}>
+          <div style={{background:'#fff',borderRadius:16,padding:'24px 28px',maxWidth:360,width:'100%',boxShadow:'0 8px 40px rgba(0,0,0,0.15)'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontWeight:700,fontSize:16,color:'#b71c1c',marginBottom:8}}>⚠️ Excluir registro</div>
+            <div style={{fontSize:13.5,color:C.text,marginBottom:16}}>
+              Tem certeza que deseja excluir este registro? Esta ação não pode ser desfeita.
+            </div>
+            {excErr && <div style={{fontSize:12,color:'#b71c1c',marginBottom:10}}>{excErr}</div>}
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setExcluindo(null)} style={{padding:'7px 16px',borderRadius:8,border:`1.5px solid ${C.border}`,background:'#fff',cursor:'pointer',fontWeight:600,fontSize:13}}>
+                Cancelar
+              </button>
+              <button onClick={()=>confirmarExcluir(excluindo)} style={{padding:'7px 18px',borderRadius:8,border:'none',background:'#b71c1c',color:'#fff',cursor:'pointer',fontWeight:700,fontSize:13}}>
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Configuracoes() {
   return (
     <div>
@@ -2658,6 +3037,10 @@ const NAV_ICONS = {
       <polyline points="14 2 14 8 20 8"/>
       <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
     </svg>),
+  alvaras: (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>),
   relatorios: (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
@@ -2678,13 +3061,14 @@ const VIEWS = [
   {id:'dashboard',  label:'Dashboard'},
   {id:'societario', label:'Societário'},
   {id:'contratos',  label:'Contratos'},
+  {id:'alvaras',    label:'Alvarás'},
   {id:'relatorios', label:'Relatórios'},
   {id:'assinaturas',label:'Assinaturas'},
   {id:'config',     label:'Configurações'},
 ];
 
 const NAV_GROUPS = [
-  { label:'PRINCIPAL',    ids:['dashboard','societario','contratos'] },
+  { label:'PRINCIPAL',    ids:['dashboard','societario','contratos','alvaras'] },
   { label:'FERRAMENTAS',  ids:['relatorios','assinaturas'] },
   { label:'SISTEMA',      ids:['config'] },
 ];
@@ -2803,11 +3187,12 @@ function App() {
   }, []);
 
   const renderView = () => {
-    if(view==='dashboard')   return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
+    if(view==='dashboard')   return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato} setView={setView}/>;
     if(view==='contratos')   return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
     if(view==='assinaturas') return <Assinaturas key={refreshKey}/>;
     if(view==='societario')  return <Societario key={refreshKey}/>;
     if(view==='relatorios')  return <RelatoriosSocietario key={refreshKey}/>;
+    if(view==='alvaras')     return <Alvaras key={refreshKey}/>;
     if(view==='config')      return <Configuracoes/>;
     return null;
   };
