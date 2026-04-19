@@ -59,7 +59,7 @@ function comprimirLogo(dataUrl) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const MAX_W = 220, MAX_H = 80;
+      const MAX_W = 400, MAX_H = 150;
       const ratio = Math.min(MAX_W / img.width, MAX_H / img.height, 1);
       const canvas = document.createElement('canvas');
       canvas.width  = Math.round(img.width  * ratio);
@@ -653,7 +653,6 @@ function Dashboard({ onNovoContrato }) {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:14,marginBottom:28}}>
         <MetricCard icon="👥" label="Clientes Ativos"     value={data.ativos}            accent={C.dark}/>
-        <MetricCard icon="💰" label="Receita Mensal"      value={fmtMoeda(data.mrr)}     accent="#1b5e20" sub="MRR"/>
         <MetricCard icon="⚠️" label="Vencendo (60d)"     value={data.vencendo}          accent="#856404"/>
         <MetricCard icon="🔴" label="Vencidos"            value={data.vencidos}          accent="#b71c1c"/>
         <MetricCard icon="🖊️" label="Assinados (ZapSign)" value={data.assinados}         accent={C.med}/>
@@ -1841,6 +1840,13 @@ function Societario() {
   const [expanded,setExpanded]= useState(null);
   const [salvandoCk, setSalvandoCk] = useState({});
   const { ficha: logoFicha } = useContext(LogoCtx);
+  const [filtroTipo,  setFiltroTipo]  = useState('');
+  const [filtroSt,    setFiltroSt]    = useState('');
+
+  const listaFiltrada = lista.filter(p=>
+    (!filtroTipo || p.tipo===filtroTipo) &&
+    (!filtroSt   || String(p.stProcesso||'').includes(filtroSt))
+  );
 
   const load = useCallback(async()=>{
     setLoading(true);setError(null);
@@ -2000,7 +2006,33 @@ function Societario() {
 
       {!loading&&!error&&lista.length>0&&(
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {lista.map((p,i)=>{
+          {/* Filtros rápidos */}
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:4}}>
+            <select value={filtroTipo} onChange={e=>setFiltroTipo(e.target.value)}
+              style={{padding:'6px 10px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,background:'#fff',color:C.text,cursor:'pointer'}}>
+              <option value="">Todos os tipos</option>
+              <option value="Abertura">Abertura</option>
+              <option value="Alteração">Alteração</option>
+            </select>
+            <select value={filtroSt} onChange={e=>setFiltroSt(e.target.value)}
+              style={{padding:'6px 10px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,background:'#fff',color:C.text,cursor:'pointer'}}>
+              <option value="">Todos os status</option>
+              <option value="Andamento">Em Andamento</option>
+              <option value="Concluído">Concluído</option>
+              <option value="Aguardando">Aguardando</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+            {(filtroTipo||filtroSt)&&(
+              <button onClick={()=>{setFiltroTipo('');setFiltroSt('');}}
+                style={{padding:'6px 12px',borderRadius:7,background:'#f0f0f0',border:`1px solid ${C.border}`,cursor:'pointer',fontSize:13,color:C.muted}}>
+                ✕ Limpar
+              </button>
+            )}
+            <span style={{display:'flex',alignItems:'center',fontSize:12,color:C.muted}}>
+              {listaFiltrada.length} de {lista.length}
+            </span>
+          </div>
+          {listaFiltrada.map((p,i)=>{
             const isOpen = expanded===p.numero;
             const bt = badgeTipo(p.tipo), bp = badgeProc(p.stProcesso), ba = badgeAprov(p.stAprovacao);
             const ckVals = p.checklist||{};
@@ -2175,6 +2207,8 @@ function RelatoriosSocietario() {
   const [filtroTipo,   setFiltroTipo]   = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroPgto,   setFiltroPgto]   = useState('');
+  const now = new Date();
+  const [filtroMes, setFiltroMes] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
 
   useEffect(()=>{
     apiFetch('societario')
@@ -2184,11 +2218,20 @@ function RelatoriosSocietario() {
 
   function parseVl(v){ const s=String(v||0); return parseFloat(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)||0; }
 
-  const filtrado = lista.filter(p=>
-    (!filtroTipo   || p.tipo===filtroTipo) &&
-    (!filtroStatus || String(p.stProcesso||'').includes(filtroStatus)) &&
-    (!filtroPgto   || p.stPgto===filtroPgto)
-  );
+  const filtrado = lista.filter(p=>{
+    if(filtroTipo   && p.tipo!==filtroTipo) return false;
+    if(filtroStatus && !String(p.stProcesso||'').includes(filtroStatus)) return false;
+    if(filtroPgto   && p.stPgto!==filtroPgto) return false;
+    if(filtroMes){
+      // dtCriacao formato "dd/MM/yyyy"
+      const parts = String(p.dtCriacao||'').split('/');
+      if(parts.length===3){
+        const mesAno = `${parts[2]}-${parts[1]}`;
+        if(mesAno!==filtroMes) return false;
+      }
+    }
+    return true;
+  });
 
   const vlTotal   = lista.reduce((a,p)=>a+parseVl(p.vlServico),0);
   const vlPago    = lista.filter(p=>p.stPgto==='Pago').reduce((a,p)=>a+parseVl(p.vlServico),0);
@@ -2213,7 +2256,12 @@ function RelatoriosSocietario() {
       .total-row{background:#f0fafa;font-weight:bold;border-top:2px solid #1B6963}
       .res-table td{border:1px solid #ddd;padding:6px 10px}
       .res-table .lbl{background:#f0fafa;font-weight:bold;color:#1B6963;width:180px}
-      @media print{button{display:none!important}body{margin:8px}}
+      @media print{
+  button{display:none!important}
+  body{margin:4px;font-size:8px}
+  table{font-size:8px}
+  @page{size:A4 landscape;margin:8mm}
+}
     </style></head><body>
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
@@ -2236,10 +2284,10 @@ function RelatoriosSocietario() {
       <tr><td class="lbl">Honorário Mensal (novas)</td><td colspan="5"><strong>${fmtMoeda(honTotal)}/mês</strong> — de ${lista.filter(p=>p.tipo==='Abertura'&&p.honMensal).length} empresa(s) nova(s)</td></tr>
     </table>
     <h2>Todos os Processos (${filtrado.length})</h2>
-    <table>
+    <table style="table-layout:fixed;width:100%">
       <tr>
         <th>Nº</th><th>Tipo</th><th>Empresa</th><th>CNPJ</th><th>Regime</th>
-        <th>Status Processo</th><th>Aprovação</th><th>Pgto</th><th>Vl. Serviço</th><th>Hon./mês</th><th>Criação</th>
+        <th>Status</th><th>Pgto</th><th>Vl. Serviço</th><th>Hon./mês</th><th>Criação</th>
       </tr>
       ${filtrado.map((p,i)=>`
       <tr>
@@ -2249,14 +2297,13 @@ function RelatoriosSocietario() {
         <td style="white-space:nowrap">${p.cnpj||'—'}</td>
         <td>${p.regime||'—'}</td>
         <td>${p.stProcesso||'—'}</td>
-        <td>${p.stAprovacao||'—'}</td>
         <td style="font-weight:bold;color:${p.stPgto==='Pago'?'green':p.stPgto==='Parcial'?'#856404':'red'}">${p.stPgto||'—'}</td>
         <td style="white-space:nowrap">${p.vlServico?fmtMoeda(parseVl(p.vlServico)):'—'}</td>
         <td style="white-space:nowrap">${p.honMensal?fmtMoeda(parseVl(p.honMensal))+'/mês':'—'}</td>
         <td style="white-space:nowrap">${p.dtCriacao||'—'}</td>
       </tr>`).join('')}
       <tr class="total-row">
-        <td colspan="8" style="text-align:right">TOTAL (${filtrado.length} processos):</td>
+        <td colspan="7" style="text-align:right">TOTAL (${filtrado.length} processos):</td>
         <td style="white-space:nowrap">${fmtMoeda(filtrado.reduce((a,p)=>a+parseVl(p.vlServico),0))}</td>
         <td style="white-space:nowrap">${fmtMoeda(filtrado.filter(p=>p.tipo==='Abertura').reduce((a,p)=>a+parseVl(p.honMensal),0))}/mês</td>
         <td></td>
@@ -2283,6 +2330,17 @@ function RelatoriosSocietario() {
       {!loading && error && <ErrMsg msg={error}/>}
       {!loading && !error && (
         <>
+          {/* Filtro de mês — sempre visível */}
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+            <label style={{fontSize:13,fontWeight:600,color:C.text}}>Mês de referência:</label>
+            <input type="month" value={filtroMes} onChange={e=>setFiltroMes(e.target.value)}
+              style={{padding:'6px 12px',borderRadius:7,border:`1px solid ${C.border}`,fontSize:13,background:'#fff',color:C.text,cursor:'pointer'}}/>
+            {filtroMes&&<button onClick={()=>setFiltroMes('')}
+              style={{padding:'6px 12px',borderRadius:7,background:'#f0f0f0',border:`1px solid ${C.border}`,cursor:'pointer',fontSize:13,color:C.muted}}>
+              Ver todos
+            </button>}
+            <span style={{fontSize:12,color:C.muted}}>{filtrado.length} processo(s)</span>
+          </div>
           {/* Abas */}
           <div style={{display:'flex',marginBottom:20,background:'#fff',borderRadius:10,border:`1px solid ${C.border}`,overflow:'hidden'}}>
             {ABA_BTNS.map((t,i)=>(
