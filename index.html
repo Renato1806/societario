@@ -40,6 +40,37 @@ async function apiFetch(action, params = {}) {
   return json.data;
 }
 
+// POST silencioso para salvar configurações (logos) no servidor
+// mode:'no-cors' → navegador não lê resposta, mas servidor processa normalmente
+async function apiPost(dados) {
+  try {
+    await fetch(API_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(dados),
+    });
+  } catch(e) { /* silencioso — localStorage é o fallback */ }
+}
+
+// Comprime imagem via Canvas (max 220x80px, JPEG 65%) → base64 pequeno
+function comprimirLogo(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX_W = 220, MAX_H = 80;
+      const ratio = Math.min(MAX_W / img.width, MAX_H / img.height, 1);
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.65));
+    };
+    img.onerror = () => resolve(dataUrl); // fallback sem compressão
+    img.src = dataUrl;
+  });
+}
+
 async function buscarCNPJDireto(cnpj) {
   const c = cnpj.replace(/\D/g,'');
   const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${c}`);
@@ -2137,7 +2168,7 @@ function RelatoriosSocietario() {
   const [lista,   setLista]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
-  const [aba,     setAba]     = useState('resumo');
+  const [aba,     setAba]     = useState('processos');
   const [filtroTipo,   setFiltroTipo]   = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroPgto,   setFiltroPgto]   = useState('');
@@ -2233,7 +2264,7 @@ function RelatoriosSocietario() {
     w.document.write(html); w.document.close();
   }
 
-  const ABA_BTNS = [{id:'resumo',l:'📊 Resumo'},{id:'processos',l:'📋 Processos'},{id:'financeiro',l:'💰 Financeiro'}];
+  const ABA_BTNS = [{id:'processos',l:'📋 Processos'},{id:'financeiro',l:'💰 Financeiro'}];
 
   return (
     <div>
@@ -2260,44 +2291,6 @@ function RelatoriosSocietario() {
               </button>
             ))}
           </div>
-
-          {/* ── Resumo ───────────────────────────────────────────────────── */}
-          {aba==='resumo' && (
-            <div style={{display:'flex',flexDirection:'column',gap:20}}>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:16}}>
-                <MetricCard icon="🏢" label="Total de Processos" value={lista.length} sub={`${nAbertura} aberturas · ${nAlteracao} alterações`} accent={C.dark}/>
-                <MetricCard icon="🔄" label="Em Andamento" value={nAndamento} sub="processos ativos" accent="#1565c0"/>
-                <MetricCard icon="✅" label="Concluídos" value={nConcluido} sub="processos finalizados" accent="#1b5e20"/>
-                <MetricCard icon="💰" label="Faturado (Serviços)" value={fmtMoeda(vlTotal)} sub={`${fmtMoeda(vlPago)} recebido`} accent={C.dark}/>
-                <MetricCard icon="⏳" label="A Receber" value={fmtMoeda(vlPend)} sub="pendente de pagamento" accent="#856404"/>
-                <MetricCard icon="📅" label="Honorário Mensal" value={fmtMoeda(honTotal)+'/mês'} sub="de aberturas cadastradas" accent="#1b5e20"/>
-              </div>
-              {/* Distribuição por tipo */}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-                {[
-                  {titulo:'Por Tipo de Processo', items:[
-                    {l:'Abertura de Empresa', n:nAbertura, cor:'#1565c0', bg:'#e3f2fd'},
-                    {l:'Alteração Contratual', n:nAlteracao, cor:'#6a1b9a', bg:'#f3e5f5'},
-                  ]},
-                  {titulo:'Por Status', items:[
-                    {l:'Em Andamento', n:nAndamento, cor:'#856404', bg:'#fff8e1'},
-                    {l:'Concluídos',   n:nConcluido, cor:'#1b5e20', bg:'#e8f5e9'},
-                    {l:'Outros',       n:lista.length-nAndamento-nConcluido, cor:C.muted, bg:'#f5f5f5'},
-                  ]},
-                ].map(({titulo,items})=>(
-                  <div key={titulo} style={{background:'#fff',borderRadius:14,border:`1px solid ${C.border}`,padding:18}}>
-                    <div style={{fontWeight:700,fontSize:13,color:C.dark,marginBottom:12}}>{titulo}</div>
-                    {items.map(({l,n,cor,bg})=>(
-                      <div key={l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${C.border}`}}>
-                        <span style={{fontSize:13,color:C.text}}>{l}</span>
-                        <span style={{padding:'2px 10px',borderRadius:20,fontSize:12,fontWeight:700,background:bg,color:cor}}>{n}</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* ── Processos ────────────────────────────────────────────────── */}
           {aba==='processos' && (
@@ -2473,36 +2466,56 @@ function RelatoriosSocietario() {
 
 function LogoUpload() {
   const logos = useContext(LogoCtx);
-  function handleFile(key, e) {
+  const [salvando, setSalvando] = useState({ficha:false, sidebar:false});
+  const [msg,      setMsg]      = useState('');
+
+  async function handleFile(key, e) {
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
-    reader.onload = ev => logos.setLogo(key, ev.target.result);
+    reader.onload = async ev => {
+      setSalvando(s=>({...s,[key]:true})); setMsg('');
+      try {
+        const compressed = await comprimirLogo(ev.target.result);
+        logos.setLogo(key, compressed); // localStorage imediato
+        // Salva no servidor (cross-browser)
+        await apiPost({ action:'salvarConfig', chave:`logo_${key}`, valor:compressed });
+        setMsg('✅ Logo salva e sincronizada com o servidor.');
+      } catch(err) {
+        logos.setLogo(key, ev.target.result); // fallback sem compressão
+        setMsg('⚠️ Salva localmente. Falha ao sincronizar com servidor.');
+      } finally { setSalvando(s=>({...s,[key]:false})); }
+    };
     reader.readAsDataURL(file);
   }
+
+  function remover(key) {
+    logos.setLogo(key, '');
+    apiPost({ action:'salvarConfig', chave:`logo_${key}`, valor:'' });
+  }
+
   const boxStyle = {background:'#f8fffe',border:`1.5px dashed ${C.border}`,borderRadius:10,padding:14,marginBottom:12};
   return (
     <div>
-      <div style={boxStyle}>
-        <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:8}}>LOGO 01 — Ficha impressa (topo direito)</div>
-        {logos.ficha && <img src={logos.ficha} style={{height:48,objectFit:'contain',display:'block',marginBottom:8}} alt="Logo ficha"/>}
-        <label style={{padding:'6px 14px',borderRadius:8,background:C.med,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,display:'inline-block'}}>
-          {logos.ficha?'Trocar imagem':'📁 Selecionar imagem'}
-          <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleFile('ficha',e)}/>
-        </label>
-        {logos.ficha&&<button onClick={()=>logos.setLogo('ficha','')} style={{marginLeft:8,padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
-      </div>
-      <div style={boxStyle}>
-        <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:8}}>LOGO 02 — Sidebar do sistema</div>
-        {logos.sidebar && <img src={logos.sidebar} style={{height:48,objectFit:'contain',display:'block',marginBottom:8}} alt="Logo sidebar"/>}
-        <label style={{padding:'6px 14px',borderRadius:8,background:C.med,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,display:'inline-block'}}>
-          {logos.sidebar?'Trocar imagem':'📁 Selecionar imagem'}
-          <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>handleFile('sidebar',e)}/>
-        </label>
-        {logos.sidebar&&<button onClick={()=>logos.setLogo('sidebar','')} style={{marginLeft:8,padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
-      </div>
+      {[
+        {key:'ficha',   label:'LOGO 01 — Ficha impressa (topo direito)'},
+        {key:'sidebar', label:'LOGO 02 — Sidebar do sistema'},
+      ].map(({key,label})=>(
+        <div key={key} style={boxStyle}>
+          <div style={{fontSize:12,fontWeight:600,color:C.muted,marginBottom:8}}>{label}</div>
+          {logos[key] && <img src={logos[key]} style={{height:48,objectFit:'contain',display:'block',marginBottom:8}} alt={label}/>}
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <label style={{padding:'6px 14px',borderRadius:8,background:salvando[key]?C.muted:C.med,color:'#fff',cursor:'pointer',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}}>
+              {salvando[key]?'Salvando...': logos[key]?'Trocar imagem':'📁 Selecionar imagem'}
+              <input type="file" accept="image/*" style={{display:'none'}} disabled={salvando[key]} onChange={e=>handleFile(key,e)}/>
+            </label>
+            {logos[key]&&<button onClick={()=>remover(key)} style={{padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
+          </div>
+        </div>
+      ))}
+      {msg && <div style={{fontSize:12,color:msg.startsWith('✅')?'#1b5e20':'#856404',background:msg.startsWith('✅')?'#e8f5e9':'#fff8e1',borderRadius:8,padding:'8px 12px',marginBottom:8}}>{msg}</div>}
       <div style={{fontSize:11.5,color:C.muted,background:'#f0fafa',borderRadius:8,padding:10}}>
-        ✅ As logos são salvas automaticamente no navegador e persistem mesmo após atualizar a página.
+        🔒 As logos são comprimidas, salvas no servidor (Google Apps Script) e carregadas automaticamente em qualquer navegador.
       </div>
     </div>
   );
@@ -2596,9 +2609,9 @@ const VIEWS = [
 ];
 
 const NAV_GROUPS = [
-  { label:'GESTÃO',    ids:['dashboard','societario','contratos'] },
-  { label:'ANÁLISE',   ids:['relatorios'] },
-  { label:'SISTEMA',   ids:['assinaturas','config'] },
+  { label:'PRINCIPAL',    ids:['dashboard','societario','contratos'] },
+  { label:'FERRAMENTAS',  ids:['relatorios','assinaturas'] },
+  { label:'SISTEMA',      ids:['config'] },
 ];
 
 function SidebarNav({ view, setView, abrirNovoContrato, onClose }) {
@@ -2700,6 +2713,19 @@ function App() {
 
   function abrirNovoContrato() { setShowWizard(true); }
   function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
+
+  // Carrega logos do servidor ao abrir (sobrepõe localStorage se o servidor tiver algo)
+  useEffect(() => {
+    Promise.all([
+      apiFetch('obterConfig', {chave:'logo_ficha'}),
+      apiFetch('obterConfig', {chave:'logo_sidebar'}),
+    ]).then(([ficha, sidebar]) => {
+      setLogos(l => ({
+        ficha:   ficha   || l.ficha,
+        sidebar: sidebar || l.sidebar,
+      }));
+    }).catch(()=>{}); // silencioso — usa localStorage como fallback
+  }, []);
 
   const renderView = () => {
     if(view==='dashboard')   return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
