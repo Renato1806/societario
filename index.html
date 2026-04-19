@@ -3513,22 +3513,54 @@ function SidebarNav({ view, setView, abrirNovoContrato, onClose }) {
 
 const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutos
 
-function App() {
-  // ── Auth state ──────────────────────────────────────────────────────────────
+// ── Root: gerencia SOMENTE auth. Sem hooks de app aqui. ─────────────────────
+function Root() {
   const [authUser, setAuthUser] = useState(() => {
     try { const s = sessionStorage.getItem('gs_fsc_auth'); return s ? JSON.parse(s) : null; }
     catch { return null; }
   });
   const [locked, setLocked] = useState(false);
-  const timerRef = useRef(null);
 
+  function login(user) {
+    sessionStorage.setItem('gs_fsc_auth', JSON.stringify(user));
+    setAuthUser(user);
+    setLocked(false);
+  }
+  function logout() {
+    sessionStorage.removeItem('gs_fsc_auth');
+    setAuthUser(null);
+    setLocked(false);
+  }
+  function lock()   { setLocked(true);  }
+  function unlock() { setLocked(false); }
+
+  if (!authUser) return <LoginScreen onLogin={login}/>;
+  if (locked)    return <LockScreen user={authUser} onUnlock={unlock}/>;
+  return <App authUser={authUser} onLogout={logout} onLock={lock}/>;
+}
+
+// ── App: gerencia SOMENTE o app. Sem auth condicional aqui. ─────────────────
+function App({ authUser, onLogout, onLock }) {
+  const [view,       setView]       = useState('dashboard');
+  const [sideOpen,   setSideOpen]   = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [logos,      setLogosState] = useState(() => {
+    try {
+      return {
+        sidebar: localStorage.getItem('facilita_logo_sidebar') || '',
+        ficha:   localStorage.getItem('facilita_logo_ficha')   || '',
+      };
+    } catch { return { sidebar:'', ficha:'' }; }
+  });
+
+  const timerRef = useRef(null);
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setLocked(true), INACTIVITY_MS);
-  }, []);
+    timerRef.current = setTimeout(() => onLock(), INACTIVITY_MS);
+  }, [onLock]);
 
   useEffect(() => {
-    if (!authUser) return;
     const evts = ['mousemove','keydown','click','scroll','touchstart'];
     evts.forEach(ev => document.addEventListener(ev, resetTimer, {passive:true}));
     resetTimer();
@@ -3536,55 +3568,28 @@ function App() {
       evts.forEach(ev => document.removeEventListener(ev, resetTimer));
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [authUser, resetTimer]);
-
-  function handleLogin(user) {
-    sessionStorage.setItem('gs_fsc_auth', JSON.stringify(user));
-    setAuthUser(user); setLocked(false); resetTimer();
-  }
-  function handleLogout() {
-    sessionStorage.removeItem('gs_fsc_auth');
-    setAuthUser(null); setLocked(false);
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }
-
-  // ── Render auth guards ──────────────────────────────────────────────────────
-  if (!authUser) return <LoginScreen onLogin={handleLogin}/>;
-  if (locked)    return <LockScreen user={authUser} onUnlock={()=>{ setLocked(false); resetTimer(); }}/>;
-
-  // ── App state (só roda após autenticado) ────────────────────────────────────
-  const [view,setView]             = useState('dashboard');
-  const [sideOpen,setSideOpen]     = useState(false);
-  const [showWizard,setShowWizard] = useState(false);
-  const [refreshKey,setRefreshKey] = useState(0);
-  const [logos, setLogos] = useState(() => {
-    try {
-      return {
-        sidebar: localStorage.getItem('facilita_logo_sidebar') || '',
-        ficha:   localStorage.getItem('facilita_logo_ficha')   || '',
-      };
-    } catch(e) { return { sidebar:'', ficha:'' }; }
-  });
-  function setLogo(key, val) {
-    setLogos(lg => ({ ...lg, [key]: val }));
-    try {
-      if(val) localStorage.setItem(`facilita_logo_${key}`, val);
-      else    localStorage.removeItem(`facilita_logo_${key}`);
-    } catch(e) {}
-  }
-
-  function abrirNovoContrato() { setShowWizard(true); }
-  function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
+  }, [resetTimer]);
 
   useEffect(() => {
     Promise.all([
       apiFetch('obterConfig', {chave:'logo_ficha'}),
       apiFetch('obterConfig', {chave:'logo_sidebar'}),
     ]).then(([ficha, sidebar]) => {
-      setLogos(l => ({ ficha: ficha||l.ficha, sidebar: sidebar||l.sidebar }));
+      setLogosState(l => ({ ficha: ficha||l.ficha, sidebar: sidebar||l.sidebar }));
     }).catch(()=>{});
   }, []);
 
+  function setLogo(key, val) {
+    setLogosState(lg => ({ ...lg, [key]: val }));
+    try {
+      if (val) localStorage.setItem(`facilita_logo_${key}`, val);
+      else     localStorage.removeItem(`facilita_logo_${key}`);
+    } catch {}
+  }
+  function abrirNovoContrato() { setShowWizard(true); }
+  function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
+
+  const SIDEBAR_W = 240;
   const renderView = () => {
     if(view==='dashboard')   return <Dashboard key={refreshKey} onNovoContrato={abrirNovoContrato} setView={setView}/>;
     if(view==='contratos')   return <Contratos key={refreshKey} onNovoContrato={abrirNovoContrato}/>;
@@ -3596,23 +3601,18 @@ function App() {
     return null;
   };
 
-  const SIDEBAR_W = 240;
-
   return (
-    <AuthCtx.Provider value={{authUser, logout: handleLogout}}>
+    <AuthCtx.Provider value={{authUser, logout: onLogout}}>
     <LogoCtx.Provider value={{...logos, setLogo}}>
     <div style={{display:'flex',minHeight:'100vh',background:C.bg}}>
 
-      {/* ── Sidebar desktop ── */}
       <aside className="sidebar-desktop" style={{
-        width:SIDEBAR_W,background:C.side,
-        display:'flex',flexDirection:'column',
+        width:SIDEBAR_W,background:C.side,display:'flex',flexDirection:'column',
         position:'fixed',top:0,bottom:0,left:0,zIndex:100,
       }}>
         <SidebarNav view={view} setView={setView} abrirNovoContrato={abrirNovoContrato}/>
       </aside>
 
-      {/* ── Sidebar mobile overlay ── */}
       {sideOpen&&(
         <div style={{position:'fixed',inset:0,zIndex:200}}>
           <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.5)'}} onClick={()=>setSideOpen(false)}/>
@@ -3622,16 +3622,13 @@ function App() {
         </div>
       )}
 
-      {/* ── Conteúdo principal ── */}
       <main className="main-content" style={{flex:1,marginLeft:SIDEBAR_W,minHeight:'100vh',display:'flex',flexDirection:'column'}}>
-        {/* Top bar mobile */}
         <div className="topbar-mobile" style={{display:'none',padding:'12px 16px',background:'#fff',borderBottom:`1px solid ${C.border}`,alignItems:'center',gap:12}}>
           <button onClick={()=>setSideOpen(true)} style={{background:'none',border:'none',cursor:'pointer',color:C.dark}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
           <LogoFull/>
         </div>
-        {/* Área de conteúdo */}
         <div style={{flex:1,padding:'32px 36px 48px',maxWidth:1180,width:'100%'}}>
           {renderView()}
         </div>
@@ -3644,7 +3641,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 </script>
 </body>
 </html>
