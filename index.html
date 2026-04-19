@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
@@ -75,6 +75,13 @@ async function buscarCEP(cep) {
   // Retorna: { cep, state, city, neighborhood, street, location }
 }
 
+function maskPct(v) {
+  // Remove qualquer % existente, mantém dígitos e vírgula/ponto decimal
+  const clean = String(v||'').replace(/%/g,'').trim();
+  if(!clean) return '';
+  return clean + '%';
+}
+
 function maskFone(v) {
   const d = v.replace(/\D/g,'').substring(0,11);
   if(!d) return '';
@@ -84,13 +91,24 @@ function maskFone(v) {
   return `(${d.substring(0,2)}) ${d.substring(2,7)}-${d.substring(7)}`;
 }
 
-// ── CNAE: busca descrição pela BrasilAPI ─────────────────────────────────────
+// ── CNAE: busca pela lista completa (cache em memória) ────────────────────────
+let _cnaeCache = null;
 async function buscarCNAE(codigo) {
-  const d = codigo.replace(/\D/g,'');
+  const d = codigo.replace(/\D/g,'').substring(0,7);
   if (d.length < 4) throw new Error('Código muito curto');
-  const res = await fetch(`https://brasilapi.com.br/api/cnae/v1/${d.substring(0,7)||d}`);
-  if (!res.ok) throw new Error('CNAE não encontrado');
-  return res.json();
+  if (!_cnaeCache) {
+    const res = await fetch('https://brasilapi.com.br/api/cnae/v1');
+    if (!res.ok) throw new Error('Erro ao carregar lista de CNAEs');
+    _cnaeCache = await res.json();
+  }
+  const item = _cnaeCache.find(c => {
+    const id = String(c.id || c.subclasse || c.codigo || '').replace(/\D/g,'');
+    return id === d || (d.length < 7 && id.startsWith(d));
+  });
+  if (!item) throw new Error('CNAE não encontrado');
+  // normalizar campo descricao
+  if (!item.descricao && item.descricao_subclasse) item.descricao = item.descricao_subclasse;
+  return item;
 }
 
 const C = {
@@ -978,7 +996,7 @@ const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 // ── Wizard: Novo Processo Societário ─────────────────────────────────────────
 const SOC_FORM_INICIAL = {
   tipo:'Abertura', razao:'', fantasia:'', cnpj:'', cep:'', telefone:'', email:'',
-  socios:[ {nome:'', cpf:'', participacao:'', endereco:'', estadoCivil:'', regimeBens:''} ],
+  socios:[ {nome:'', cpf:'', participacao:'', endLogradouro:'', endNumero:'', endBairro:'', endCidade:'', endEstado:'PR', estadoCivil:'', regimeBens:''} ],
   endereco:'', capital:'', regime:'Simples Nacional',
   cnaeCod:'', cnaeDesc:'', cnaeSec:'', cnaesSecArr:[], objeto:'',
   alvara:'Não', im:'',
@@ -1075,7 +1093,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         capital:  '',
         cnaeSec:  secArr.map(c=>c.cod+(c.desc?` — ${c.desc}`:'')).join('; '),
         objeto:   '',
-        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endereco:'',estadoCivil:'',regimeBens:''}],
+        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}],
       };
 
       if(form.tipo==='Alteração') {
@@ -1128,7 +1146,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   }
 
   // ── Sócios dinâmicos ──────────────────────────────────────────────────────
-  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endereco:'',estadoCivil:'',regimeBens:''}]})); }
+  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}]})); }
   function rmSocio(i){ setForm(f=>({...f, socios:f.socios.filter((_,j)=>j!==i)})); }
   function setSocio(i,k,v){ setForm(f=>{ const s=[...f.socios]; s[i]={...s[i],[k]:v}; return {...f,socios:s}; }); }
 
@@ -1161,7 +1179,12 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         if((s.estadoCivil==='Casado'||s.estadoCivil==='União Estável') && s.regimeBens)
           linha += ` (${s.regimeBens})`;
       }
-      if(s.endereco) linha += `\n   Endereço: ${s.endereco}`;
+      const endSoc = [s.endLogradouro, s.endNumero?`nº ${s.endNumero}`:''].filter(Boolean).join(', ')
+        + (s.endBairro?` - ${s.endBairro}`:'')
+        + (s.endCidade?` - ${s.endCidade}`:'')
+        + (s.endEstado?`/${s.endEstado}`:'');
+      if(endSoc.replace(/[-\s\/]/g,'')) linha += `\n   Endereço: ${endSoc}`;
+      else if(s.endereco) linha += `\n   Endereço: ${s.endereco}`; // compatibilidade dados antigos
       return linha;
     }).join('\n');
   }
@@ -1266,7 +1289,14 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         <tr><td class="lbl">Sócio ${i+1}</td><td>
           ${sc.nome||'—'}${sc.cpf?` &nbsp;·&nbsp; CPF: ${sc.cpf}`:''}${sc.participacao?` &nbsp;·&nbsp; ${sc.participacao}`:''}
           ${sc.estadoCivil?` &nbsp;·&nbsp; ${sc.estadoCivil}`:''}${(sc.estadoCivil==='Casado'||sc.estadoCivil==='União Estável')&&sc.regimeBens?` (${sc.regimeBens})`:''}
-          ${sc.endereco?`<br><small>${sc.endereco}</small>`:''}
+          ${(()=>{
+            const endSoc=[sc.endLogradouro,sc.endNumero?`nº ${sc.endNumero}`:''].filter(Boolean).join(', ')
+              +(sc.endBairro?` - ${sc.endBairro}`:'')
+              +(sc.endCidade?` - ${sc.endCidade}`:'')
+              +(sc.endEstado?`/${sc.endEstado}`:'');
+            const addr=endSoc.replace(/[-\s\/]/g,'')?endSoc:sc.endereco||'';
+            return addr?`<br><small>${addr}</small>`:'';
+          })()}
         </td></tr>`).join('')}
     </table>
     <table>
@@ -1465,7 +1495,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                     <Inp value={sc.cpf} onChange={v=>setSocio(i,'cpf',maskCPF(v))} placeholder="000.000.000-00"/>
                   </Field>
                   <Field label="Participação %">
-                    <Inp value={sc.participacao} onChange={v=>setSocio(i,'participacao',v)} placeholder="50%"/>
+                    <Inp value={sc.participacao} onChange={v=>setSocio(i,'participacao',maskPct(v))} placeholder="50%"/>
                   </Field>
                   <Field label="Estado Civil">
                     <Sel value={sc.estadoCivil||''}
@@ -1494,9 +1524,26 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                     </Field>
                   )}
                 </div>
-                <Field label="Endereço do Sócio">
-                  <Inp value={sc.endereco} onChange={v=>setSocio(i,'endereco',v)} placeholder="Rua, número, bairro, cidade - UF, CEP"/>
-                </Field>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 100px',gap:8}}>
+                  <Field label="Logradouro">
+                    <Inp value={sc.endLogradouro||''} onChange={v=>setSocio(i,'endLogradouro',v)} placeholder="Rua, Av., Travessa..."/>
+                  </Field>
+                  <Field label="Número">
+                    <Inp value={sc.endNumero||''} onChange={v=>setSocio(i,'endNumero',v)} placeholder="123"/>
+                  </Field>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:8}}>
+                  <Field label="Bairro">
+                    <Inp value={sc.endBairro||''} onChange={v=>setSocio(i,'endBairro',v)} placeholder="Bairro"/>
+                  </Field>
+                  <Field label="Cidade">
+                    <Inp value={sc.endCidade||''} onChange={v=>setSocio(i,'endCidade',v)} placeholder="Cidade"/>
+                  </Field>
+                  <Field label="UF">
+                    <Sel value={sc.endEstado||'PR'} onChange={v=>setSocio(i,'endEstado',v)}
+                      options={UF_LIST.map(uf=>({value:uf,label:uf}))}/>
+                  </Field>
+                </div>
               </div>
             );
           })}
@@ -1742,15 +1789,16 @@ function Societario() {
       .ck{display:inline-block;width:14px;height:14px;border:1px solid #555;margin-right:6px;vertical-align:middle}
       @media print{button{display:none}}
     </style></head><body>
-    <div style="margin-bottom:14px">
-      <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
-      <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
-    </div>
-    <h2>${p.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'} — ${p.numero}${p.checklist?.codJucpr?' &nbsp;|&nbsp; Junta: '+p.checklist.codJucpr:''}</h2>
     <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start">
-      <div></div>
+      <div>
+        <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
+        <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
+      </div>
       ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
     </div>
+    <h2>${p.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'} — ${p.numero}</h2>
+    ${p.checklist?.codJucpr?`<div style="font-size:13px;color:#1B6963;font-weight:700;margin:-10px 0 14px 0;padding:6px 12px;background:#e8f5e9;border-radius:6px;display:inline-block">🏛️ Nº Processo Junta Comercial (JUCPR): <strong>${p.checklist.codJucpr}</strong></div>`:''}
+
     <table>
       <tr><td class="sec" colspan="2">Dados da Empresa</td></tr>
       <tr><td class="lbl">Tipo</td><td>${p.tipo}</td></tr>
