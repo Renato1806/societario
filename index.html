@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Facilita — Contratos</title>
+  <title>Gestão Societária — FSC</title>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -194,8 +194,8 @@ function LogoFull({ dark=false }) {
     <div style={{display:'flex',alignItems:'center',gap:10}}>
       <LogoIcon size={34}/>
       <div style={{lineHeight:1.2}}>
-        <div style={{fontWeight:700,fontSize:15,color:dark?'#fff':C.dark,letterSpacing:'-0.2px'}}>Facilita</div>
-        <div style={{fontWeight:400,fontSize:9.5,color:dark?C.sideMuted:C.med,letterSpacing:'0.6px',textTransform:'uppercase'}}>Soluções Contábeis</div>
+        <div style={{fontWeight:700,fontSize:14,color:dark?'#fff':C.dark,letterSpacing:'-0.2px'}}>Gestão Societária</div>
+        <div style={{fontWeight:400,fontSize:9.5,color:dark?C.sideMuted:C.med,letterSpacing:'0.6px',textTransform:'uppercase'}}>FSC</div>
       </div>
     </div>
   );
@@ -1378,7 +1378,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </style></head><body>
     <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start">
       <div>
-        <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
+        <div style="font-size:18px;font-weight:800;color:#1B6963">Gestão Societária — FSC</div>
         <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
       </div>
       ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
@@ -1953,7 +1953,7 @@ function Societario() {
     </style></head><body>
     <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start">
       <div>
-        <div style="font-size:18px;font-weight:800;color:#1B6963">Facilita Soluções Contábeis</div>
+        <div style="font-size:18px;font-weight:800;color:#1B6963">Gestão Societária — FSC</div>
         <div style="font-size:11px;color:#3E9C95">CRC-PR 008811/O-7 · renato.ramos@scfacilita.com.br · (44) 3017-5823</div>
       </div>
       ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
@@ -2347,7 +2347,7 @@ function RelatoriosSocietario() {
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
         <h1>📋 Relatório de Processos Societários</h1>
-        <div style="font-size:10px;color:#666;margin-bottom:12px">Facilita Soluções Contábeis &nbsp;·&nbsp; Emitido em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        <div style="font-size:10px;color:#666;margin-bottom:12px">Gestão Societária — FSC &nbsp;·&nbsp; Emitido em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
       </div>
       <button onclick="window.print()" style="padding:8px 18px;background:#1B6963;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;margin-top:4px">🖨️ Imprimir / PDF</button>
     </div>
@@ -2693,11 +2693,27 @@ function AlvaraModal({ alvara, onClose, onSalvo }) {
     dtVencimento: brToISO(a.dtVencimento),
   });
 
-  const [form, setForm]       = useState(alvara ? toForm(alvara) : {...ALVARA_VAZIO});
+  const [form, setForm]         = useState(alvara ? toForm(alvara) : {...ALVARA_VAZIO});
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro]       = useState('');
+  const [erro, setErro]         = useState('');
+  const [cnpjBusca, setCnpjBusca]     = useState('');
+  const [cnpjLoading, setCnpjLoading] = useState(false);
+  const [cnpjErro, setCnpjErro]       = useState('');
 
   function set(k, v) { setForm(f=>({...f,[k]:v})); }
+
+  async function buscarEmpresaCNPJ() {
+    const c = cnpjBusca.replace(/\D/g,'');
+    if (c.length !== 14) { setCnpjErro('CNPJ inválido — informe os 14 dígitos'); return; }
+    setCnpjLoading(true); setCnpjErro('');
+    try {
+      const d = await buscarCNPJDireto(c);
+      const nome = d.razao_social || d.nome || '';
+      set('empresa', nome);
+      setCnpjErro('');
+    } catch(e) { setCnpjErro('CNPJ não encontrado na Receita Federal'); }
+    finally { setCnpjLoading(false); }
+  }
 
   async function salvar() {
     if (!form.empresa.trim()) { setErro('Informe o nome da empresa'); return; }
@@ -2739,10 +2755,31 @@ function AlvaraModal({ alvara, onClose, onSalvo }) {
 
         {/* Body */}
         <div style={{overflowY:'auto',flex:1,padding:'16px 20px 20px'}}>
+          {/* Busca por CNPJ */}
+          <Field label="Buscar empresa pelo CNPJ" hint="Preencha o CNPJ para buscar o nome automaticamente">
+            <div style={{display:'flex',gap:8}}>
+              <input
+                value={cnpjBusca}
+                onChange={e=>{ setCnpjErro(''); setCnpjBusca(maskCNPJ(e.target.value)); }}
+                placeholder="00.000.000/0001-00"
+                maxLength={18}
+                style={{...inputStyle,flex:1}}
+                onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); buscarEmpresaCNPJ(); } }}
+              />
+              <button onClick={buscarEmpresaCNPJ} disabled={cnpjLoading}
+                style={{padding:'0 16px',borderRadius:8,border:'none',background:cnpjLoading?C.muted:C.med,color:'#fff',cursor:cnpjLoading?'not-allowed':'pointer',fontWeight:700,fontSize:13,whiteSpace:'nowrap',flexShrink:0}}>
+                {cnpjLoading ? '...' : '🔍 Buscar'}
+              </button>
+            </div>
+            {cnpjErro && <div style={{fontSize:12,color:'#b71c1c',marginTop:4}}>{cnpjErro}</div>}
+          </Field>
+
           {/* Empresa */}
-          <Field label="Empresa" required>
+          <div style={{marginTop:10}}>
+          <Field label="Razão Social" required>
             <Inp value={form.empresa} onChange={v=>set('empresa',v)} placeholder="Nome da empresa"/>
           </Field>
+          </div>
 
           {/* Etapa 1 — Bombeiros */}
           <div style={secStyle}>Etapa 1 — Corpo de Bombeiros</div>
