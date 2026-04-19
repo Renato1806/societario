@@ -91,23 +91,23 @@ function maskFone(v) {
   return `(${d.substring(0,2)}) ${d.substring(2,7)}-${d.substring(7)}`;
 }
 
-// ── CNAE: busca pela lista completa (cache em memória) ────────────────────────
+// ── CNAE: busca via IBGE — subclasses, cache em memória ──────────────────────
+// API: https://servicodados.ibge.gov.br/api/v2/cnae/subclasses
+// Resposta: [{ id: "4930-2/02", descricao: "Transporte..." }, ...]
 let _cnaeCache = null;
 async function buscarCNAE(codigo) {
   const d = codigo.replace(/\D/g,'').substring(0,7);
   if (d.length < 4) throw new Error('Código muito curto');
   if (!_cnaeCache) {
-    const res = await fetch('https://brasilapi.com.br/api/cnae/v1');
-    if (!res.ok) throw new Error('Erro ao carregar lista de CNAEs');
+    const res = await fetch('https://servicodados.ibge.gov.br/api/v2/cnae/subclasses');
+    if (!res.ok) throw new Error('Erro ao carregar lista CNAE (IBGE)');
     _cnaeCache = await res.json();
   }
   const item = _cnaeCache.find(c => {
-    const id = String(c.id || c.subclasse || c.codigo || '').replace(/\D/g,'');
+    const id = String(c.id || '').replace(/\D/g,'');
     return id === d || (d.length < 7 && id.startsWith(d));
   });
   if (!item) throw new Error('CNAE não encontrado');
-  // normalizar campo descricao
-  if (!item.descricao && item.descricao_subclasse) item.descricao = item.descricao_subclasse;
   return item;
 }
 
@@ -996,7 +996,7 @@ const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 // ── Wizard: Novo Processo Societário ─────────────────────────────────────────
 const SOC_FORM_INICIAL = {
   tipo:'Abertura', razao:'', fantasia:'', cnpj:'', cep:'', telefone:'', email:'',
-  socios:[ {nome:'', cpf:'', participacao:'', endLogradouro:'', endNumero:'', endBairro:'', endCidade:'', endEstado:'PR', estadoCivil:'', regimeBens:''} ],
+  socios:[ {nome:'', cpf:'', participacao:'', cepSoc:'', endLogradouro:'', endNumero:'', endBairro:'', endCidade:'', endEstado:'PR', estadoCivil:'', regimeBens:''} ],
   endereco:'', capital:'', regime:'Simples Nacional',
   cnaeCod:'', cnaeDesc:'', cnaeSec:'', cnaesSecArr:[], objeto:'',
   alvara:'Não', im:'',
@@ -1027,6 +1027,8 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   const [cnpjLoading, setCnpjLoading] = useState(false);
   const [cepLoading, setCepLoading]   = useState(false);
   const [cepErro, setCepErro]         = useState('');
+  const [cepSocLoading, setCepSocLoading] = useState({});  // { idx: bool }
+  const [cepSocErro,    setCepSocErro]    = useState({});  // { idx: string }
   const [cnaeLoading, setCnaeLoading] = useState(false);
   const [cnaeErro, setCnaeErro]       = useState('');
   const cnaeTimerRef = useRef(null);
@@ -1093,7 +1095,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
         capital:  '',
         cnaeSec:  secArr.map(c=>c.cod+(c.desc?` — ${c.desc}`:'')).join('; '),
         objeto:   '',
-        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}],
+        socios:   socios.length>0 ? socios : [{nome:'',cpf:'',participacao:'',cepSoc:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}],
       };
 
       if(form.tipo==='Alteração') {
@@ -1121,6 +1123,30 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     finally{ setCepLoading(false); }
   }
 
+  async function buscarCEPSocio(idx, cepVal) {
+    const c = (cepVal||'').replace(/\D/g,'');
+    if(c.length!==8) return;
+    setCepSocLoading(s=>({...s,[idx]:true}));
+    setCepSocErro(s=>({...s,[idx]:''}));
+    try {
+      const d = await buscarCEP(c);
+      if(d.street||d.neighborhood||d.city) {
+        setForm(f=>{
+          const socios=[...f.socios];
+          socios[idx]={
+            ...socios[idx],
+            endLogradouro: cap((d.descricao_tipo_de_logradouro||'')+' '+(d.street||d.logradouro||'')).trim() || socios[idx].endLogradouro,
+            endBairro:     cap(d.neighborhood||d.bairro||'') || socios[idx].endBairro,
+            endCidade:     cap(d.city||d.localidade||'')     || socios[idx].endCidade,
+            endEstado:     d.state||d.uf||socios[idx].endEstado,
+          };
+          return {...f, socios};
+        });
+      }
+    } catch(e){ setCepSocErro(s=>({...s,[idx]:'CEP não encontrado'})); }
+    finally{ setCepSocLoading(s=>({...s,[idx]:false})); }
+  }
+
   async function buscarCNAESoc(codOverride) {
     setCnaeErro('');
     const codigo = codOverride !== undefined ? codOverride : form.cnaeCod;
@@ -1146,7 +1172,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
   }
 
   // ── Sócios dinâmicos ──────────────────────────────────────────────────────
-  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}]})); }
+  function addSocio(){ setForm(f=>({...f, socios:[...f.socios,{nome:'',cpf:'',participacao:'',cepSoc:'',endLogradouro:'',endNumero:'',endBairro:'',endCidade:'',endEstado:'PR',estadoCivil:'',regimeBens:''}]})); }
   function rmSocio(i){ setForm(f=>({...f, socios:f.socios.filter((_,j)=>j!==i)})); }
   function setSocio(i,k,v){ setForm(f=>{ const s=[...f.socios]; s[i]={...s[i],[k]:v}; return {...f,socios:s}; }); }
 
@@ -1301,7 +1327,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Dados Técnicos</td></tr>
-      <tr><td class="lbl">Capital Social</td><td>${s.capital||'—'}</td></tr>
+      <tr><td class="lbl">Capital Social</td><td><strong>${s.capital?fmtMoeda(s.capital):'—'}</strong></td></tr>
       <tr><td class="lbl">Regime Tributário</td><td>${s.regime}</td></tr>
       <tr><td class="lbl">CNAE Principal</td><td>${s.cnaeCod?`${s.cnaeCod} — `:''}${s.cnaeDesc||'—'}</td></tr>
       ${s.cnaeSec?`<tr><td class="lbl">CNAE Secundário</td><td>${s.cnaeSec}</td></tr>`:''}
@@ -1524,7 +1550,19 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
                     </Field>
                   )}
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 100px',gap:8}}>
+                {/* Endereço do Sócio com CEP */}
+                <div style={{display:'grid',gridTemplateColumns:'130px 1fr 90px',gap:8,alignItems:'start'}}>
+                  <Field label="CEP" hint="Auto-preenche endereço">
+                    <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                      <Inp value={sc.cepSoc||''} onChange={v=>{
+                        const m=maskCEP(v);
+                        setSocio(i,'cepSoc',m);
+                        if(m.replace(/\D/g,'').length===8) buscarCEPSocio(i,m);
+                      }} placeholder="00000-000"/>
+                      {cepSocLoading[i]&&<Spinner size={14}/>}
+                    </div>
+                    {cepSocErro[i]&&<span style={{fontSize:11,color:'#e53935'}}>{cepSocErro[i]}</span>}
+                  </Field>
                   <Field label="Logradouro">
                     <Inp value={sc.endLogradouro||''} onChange={v=>setSocio(i,'endLogradouro',v)} placeholder="Rua, Av., Travessa..."/>
                   </Field>
@@ -1818,7 +1856,7 @@ function Societario() {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Dados Técnicos</td></tr>
-      <tr><td class="lbl">Capital Social</td><td>${p.capital||'—'}</td></tr>
+      <tr><td class="lbl">Capital Social</td><td><strong>${p.capital?fmtMoeda(p.capital):'—'}</strong></td></tr>
       <tr><td class="lbl">Regime Tributário</td><td>${p.regime||'—'}</td></tr>
       <tr><td class="lbl">CNAE Principal</td><td>${p.cnaeCod?`${p.cnaeCod} — `:''}${p.cnaeDesc||'—'}</td></tr>
       ${p.cnaeSec?`<tr><td class="lbl">CNAE Secundário</td><td>${p.cnaeSec}</td></tr>`:''}
