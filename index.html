@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f6f9;color:#1a202c;-webkit-font-smoothing:antialiased}
+    body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#eef2f7;color:#1a202c;-webkit-font-smoothing:antialiased}
     @keyframes spin{to{transform:rotate(360deg)}}
     input,select,textarea{font-family:'Inter',inherit}
     .nav-item{transition:background 0.13s,color 0.13s,border-color 0.13s}
@@ -120,7 +120,7 @@ const C = {
   // Brand teal
   dark:'#1B6963', med:'#3E9C95', light:'#4DD9C5',
   // Conteúdo
-  bg:'#f4f6f9', card:'#ffffff', text:'#1a202c', muted:'#64748b', border:'#e2e8f0',
+  bg:'#eef2f7', card:'#ffffff', text:'#1a202c', muted:'#64748b', border:'#e2e8f0',
   // Sidebar escura
   side:'#15202f', sideHover:'rgba(255,255,255,0.06)', sideActive:'rgba(77,217,197,0.13)',
   sideAccent:'#4DD9C5', sideText:'#e2e8f0', sideMuted:'#8896a7',
@@ -2502,7 +2502,7 @@ function LogoUpload() {
         {logos.sidebar&&<button onClick={()=>logos.setLogo('sidebar','')} style={{marginLeft:8,padding:'6px 10px',borderRadius:8,background:'#fdecea',color:'#b71c1c',border:'none',cursor:'pointer',fontSize:12}}>Remover</button>}
       </div>
       <div style={{fontSize:11.5,color:C.muted,background:'#f0fafa',borderRadius:8,padding:10}}>
-        ℹ️ As logos ficam salvas apenas durante esta sessão. Para torná-las permanentes, faça upload novamente ao abrir o sistema.
+        ✅ As logos são salvas automaticamente no navegador e persistem mesmo após atualizar a página.
       </div>
     </div>
   );
@@ -2680,8 +2680,23 @@ function App() {
   const [sideOpen,setSideOpen]     = useState(false);
   const [showWizard,setShowWizard] = useState(false);
   const [refreshKey,setRefreshKey] = useState(0);
-  const [logos, setLogos]          = useState({ sidebar:'', ficha:'' });
-  function setLogo(key, val) { setLogos(lg=>({...lg,[key]:val})); }
+  const [logos, setLogos] = useState(() => {
+    // Carrega logos salvas no localStorage ao iniciar
+    try {
+      return {
+        sidebar: localStorage.getItem('facilita_logo_sidebar') || '',
+        ficha:   localStorage.getItem('facilita_logo_ficha')   || '',
+      };
+    } catch(e) { return { sidebar:'', ficha:'' }; }
+  });
+  function setLogo(key, val) {
+    setLogos(lg => ({ ...lg, [key]: val }));
+    // Persiste no localStorage para sobreviver ao refresh
+    try {
+      if(val) localStorage.setItem(`facilita_logo_${key}`, val);
+      else    localStorage.removeItem(`facilita_logo_${key}`);
+    } catch(e) {}
+  }
 
   function abrirNovoContrato() { setShowWizard(true); }
   function fecharWizard()      { setShowWizard(false); setRefreshKey(k=>k+1); }
