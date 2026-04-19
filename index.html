@@ -674,6 +674,18 @@ function LoginScreen({ onLogin }) {
   const [senha,   setSenha]   = useState('');
   const [loading, setLoading] = useState(false);
   const [erro,    setErro]    = useState('');
+  const [logoSidebar, setLogoSidebar] = useState(() => {
+    try { return localStorage.getItem('facilita_logo_sidebar') || ''; } catch { return ''; }
+  });
+
+  // Tenta buscar logo no servidor se não estiver no localStorage
+  useEffect(() => {
+    if (!logoSidebar) {
+      apiFetch('obterConfig', {chave:'logo_sidebar'})
+        .then(d => { if (d) { setLogoSidebar(d); try { localStorage.setItem('facilita_logo_sidebar', d); } catch{} } })
+        .catch(() => {});
+    }
+  }, []);
 
   async function entrar(e) {
     e && e.preventDefault();
@@ -690,8 +702,11 @@ function LoginScreen({ onLogin }) {
     <div style={{minHeight:'100vh',background:C.side,display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'Inter,sans-serif'}}>
       <div style={{background:'#fff',borderRadius:22,padding:'40px 36px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,0.35)'}}>
         <div style={{textAlign:'center',marginBottom:28}}>
-          <LogoIcon size={52}/>
-          <div style={{marginTop:14,fontWeight:800,fontSize:20,color:C.dark,letterSpacing:'-0.3px'}}>Gestão Societária</div>
+          {logoSidebar
+            ? <img src={logoSidebar} alt="Logo" style={{maxHeight:80,maxWidth:260,objectFit:'contain',margin:'0 auto 10px',display:'block'}}/>
+            : <LogoIcon size={52}/>
+          }
+          <div style={{marginTop:logoSidebar?8:14,fontWeight:800,fontSize:20,color:C.dark,letterSpacing:'-0.3px'}}>Gestão Societária</div>
           <div style={{fontSize:11,color:C.muted,letterSpacing:'1px',textTransform:'uppercase',marginTop:3,fontWeight:600}}>FSC — Acesso Restrito</div>
         </div>
         <form onSubmit={entrar}>
