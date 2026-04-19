@@ -1348,9 +1348,16 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
       <tr><td class="lbl">Telefone</td><td>${s.telefone||'—'}</td></tr>
       <tr><td class="lbl">E-mail</td><td>${s.email||'—'}</td></tr>
       <tr><td class="lbl">Endereço</td><td>${s.endereco||'—'}</td></tr>
-      ${s.inscrImobil?`<tr><td class="lbl">Inscrição Imobiliária</td><td>${s.inscrImobil}</td></tr>`:''}
-      ${s.mtgImovel?`<tr><td class="lbl">Metragem do Imóvel</td><td>${s.mtgImovel} m²</td></tr>`:''}
-      ${s.mtgEstab?`<tr><td class="lbl">Metragem do Estabelecimento</td><td>${s.mtgEstab} m²</td></tr>`:''}
+    </table>
+    <table>
+      <tr><td class="sec" colspan="2">Dados do Imóvel / Estabelecimento</td></tr>
+      <tr><td class="lbl">Inscrição Imobiliária</td><td>${s.inscrImobil||'—'}</td></tr>
+      <tr>
+        <td class="lbl">Metragem do Imóvel</td><td>${s.mtgImovel?s.mtgImovel+' m²':'—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">Metragem do Estabelecimento</td><td>${s.mtgEstab?s.mtgEstab+' m²':'—'}</td>
+      </tr>
     </table>
     <table>
       <tr><td class="sec" colspan="2">Sócios</td></tr>
@@ -1896,9 +1903,16 @@ function Societario() {
       <tr><td class="lbl">Telefone</td><td>${p.telefone||'—'}</td></tr>
       <tr><td class="lbl">E-mail</td><td>${p.email||'—'}</td></tr>
       <tr><td class="lbl">Endereço</td><td>${p.endereco||'—'}</td></tr>
-      ${p.inscrImobil?`<tr><td class="lbl">Inscrição Imobiliária</td><td>${p.inscrImobil}</td></tr>`:''}
-      ${p.mtgImovel?`<tr><td class="lbl">Metragem do Imóvel</td><td>${p.mtgImovel} m²</td></tr>`:''}
-      ${p.mtgEstab?`<tr><td class="lbl">Metragem do Estabelecimento</td><td>${p.mtgEstab} m²</td></tr>`:''}
+    </table>
+    <table>
+      <tr><td class="sec" colspan="2">Dados do Imóvel / Estabelecimento</td></tr>
+      <tr><td class="lbl">Inscrição Imobiliária</td><td>${p.inscrImobil||'—'}</td></tr>
+      <tr>
+        <td class="lbl">Metragem do Imóvel</td><td>${p.mtgImovel?p.mtgImovel+' m²':'—'}</td>
+      </tr>
+      <tr>
+        <td class="lbl">Metragem do Estabelecimento</td><td>${p.mtgEstab?p.mtgEstab+' m²':'—'}</td>
+      </tr>
     </table>
     <table>
       <tr><td class="sec" colspan="2">Sócios</td></tr>
