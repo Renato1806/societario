@@ -792,99 +792,152 @@ function LockScreen({ user, onUnlock }) {
 }
 
 function Dashboard({ onNovoContrato, setView }) {
-  const [data,setData]           = useState(null);
-  const [loading,setLoading]     = useState(true);
-  const [error,setError]         = useState(null);
-  const [alvaras,setAlvaras]     = useState([]);
+  const [contratos, setContratos] = useState(null);
+  const [alvaras,   setAlvaras]   = useState([]);
+  const [socios,    setSocios]    = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
 
-  const load = useCallback(async()=>{
-    setLoading(true);setError(null);
-    try{ const d=await apiFetch('dashboard'); setData(d); }
-    catch(e){ setError(e.message); }
-    finally{ setLoading(false); }
-  },[]);
-  useEffect(()=>{ load(); },[]);
-  useEffect(()=>{
-    apiFetch('listarAlvaras').then(d=>setAlvaras(d||[])).catch(()=>{});
-  },[]);
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [dash, alv, soc] = await Promise.all([
+        apiFetch('dashboard'),
+        apiFetch('listarAlvaras').catch(()=>[]),
+        apiFetch('listarSocietario').catch(()=>[]),
+      ]);
+      setContratos(dash);
+      setAlvaras(alv || []);
+      setSocios(soc || []);
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, []);
 
-  if(loading) return <Spinner/>;
-  if(error)   return <ErrMsg msg={error} onRetry={load}/>;
-  if(!data)   return null;
+  if (loading) return <Spinner/>;
+  if (error)   return <ErrMsg msg={error} onRetry={load}/>;
+
+  // ── Alertas de contratos ─────────────────────────────────────────────────
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const d60  = new Date(hoje); d60.setDate(d60.getDate()+60);
+
+  const contratosVencidos  = (contratos?.recentes||[]).filter(c => {
+    if (!c.vencimento || c.status === 'Cancelado') return false;
+    const [d,m,a] = c.vencimento.split('/');
+    const dt = new Date(+a,+m-1,+d);
+    return dt < hoje;
+  });
+  const contratosVencendo  = (contratos?.recentes||[]).filter(c => {
+    if (!c.vencimento || c.status === 'Cancelado') return false;
+    const [d,m,a] = c.vencimento.split('/');
+    const dt = new Date(+a,+m-1,+d);
+    return dt >= hoje && dt <= d60;
+  });
+
+  // ── Alertas de alvarás ───────────────────────────────────────────────────
+  const alvarasVencidos  = alvaras.filter(a => calcStatusAlvara(a).label === 'Vencido');
+  const alvarasRenovar   = alvaras.filter(a => calcStatusAlvara(a).label === 'A renovar');
+
+  // ── Processos Junta parados (abertura em andamento há +10 dias) ──────────
+  const processosDemorados = socios.filter(p => {
+    if (!p.dtCriacao) return false;
+    if (p.stProcesso && p.stProcesso.includes('Cancelado')) return false;
+    if (p.stProcesso && p.stProcesso.includes('Concluído')) return false;
+    const [d,m,a] = p.dtCriacao.split('/');
+    const criacao = new Date(+a,+m-1,+d);
+    const dias = Math.floor((hoje - criacao) / 86400000);
+    return dias > 10;
+  });
+
+  const temAlertas = contratosVencidos.length || contratosVencendo.length ||
+                     alvarasVencidos.length || alvarasRenovar.length ||
+                     processosDemorados.length;
+
+  const AlertBox = ({icon, bg, border, titleColor, title, subtitulo, onClick, btnLabel}) => (
+    <div onClick={onClick} style={{
+      background:bg, border:`1px solid ${border}`, borderRadius:12,
+      padding:'14px 18px', marginBottom:14, cursor:onClick?'pointer':'default',
+      display:'flex', alignItems:'flex-start', gap:12,
+    }}>
+      <span style={{fontSize:22, marginTop:1}}>{icon}</span>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700, color:titleColor, fontSize:13.5}}>{title}</div>
+        {subtitulo && <div style={{fontSize:12, color:titleColor, opacity:0.8, marginTop:3}}>{subtitulo}</div>}
+      </div>
+      {btnLabel && <span style={{fontSize:12, color:titleColor, fontWeight:600, whiteSpace:'nowrap', marginTop:2}}>{btnLabel} →</span>}
+    </div>
+  );
 
   return (
     <div>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:10}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:24,flexWrap:'wrap',gap:10}}>
         <h2 style={{fontSize:20,fontWeight:700,color:C.dark}}>Painel de Controle</h2>
         <button onClick={onNovoContrato} style={{padding:'9px 20px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13}}>
           ➕ Novo Contrato
         </button>
       </div>
-      {(() => {
-        const alertas = alvaras.filter(a => { const st=calcStatusAlvara(a); return st.label==='Vencido'||st.label==='A renovar'; });
-        if (!alertas.length) return null;
-        return (
-          <div onClick={()=>setView&&setView('alvaras')} style={{
-            background:'#fff8e1',border:'1px solid #ffc107',borderRadius:12,
-            padding:'12px 18px',marginBottom:18,cursor:'pointer',
-            display:'flex',alignItems:'center',gap:12,
-          }}>
-            <span style={{fontSize:20}}>🔔</span>
-            <div>
-              <div style={{fontWeight:700,color:'#856404',fontSize:13.5}}>
-                {alertas.filter(a=>calcStatusAlvara(a).label==='Vencido').length} alvará(s) vencido(s)
-                {alertas.filter(a=>calcStatusAlvara(a).label==='A renovar').length > 0 &&
-                  ` · ${alertas.filter(a=>calcStatusAlvara(a).label==='A renovar').length} a vencer em 60 dias`}
-              </div>
-              <div style={{fontSize:12,color:'#a06000',marginTop:2}}>
-                {alertas.slice(0,3).map(a=>a.empresa).join(' · ')}{alertas.length>3?' · ...':''}
-              </div>
-            </div>
-            <span style={{marginLeft:'auto',fontSize:12,color:'#856404',fontWeight:600}}>Ver Alvarás →</span>
-          </div>
-        );
-      })()}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:14,marginBottom:28}}>
-        <MetricCard icon="👥" label="Clientes Ativos"     value={data.ativos}            accent={C.dark}/>
-        <MetricCard icon="⚠️" label="Vencendo (60d)"     value={data.vencendo}          accent="#856404"/>
-        <MetricCard icon="🔴" label="Vencidos"            value={data.vencidos}          accent="#b71c1c"/>
-        <MetricCard icon="🖊️" label="Assinados (ZapSign)" value={data.assinados}         accent={C.med}/>
-        <MetricCard icon="📄" label="Total de Contratos"  value={data.total}             accent={C.dark}/>
-      </div>
-      <div style={{background:C.card,borderRadius:16,border:`1px solid ${C.border}`,boxShadow:'0 1px 4px rgba(27,105,99,0.07)',overflow:'hidden'}}>
-        <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,background:C.dark}}>
-          <h3 style={{color:'#fff',fontSize:14,fontWeight:600}}>📋 Últimos Contratos</h3>
+
+      {!temAlertas && (
+        <div style={{textAlign:'center',padding:'60px 20px',color:C.muted}}>
+          <div style={{fontSize:48,marginBottom:12}}>✅</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.dark,marginBottom:6}}>Tudo em dia!</div>
+          <div style={{fontSize:13}}>Nenhum alerta de vencimento ou processo pendente.</div>
         </div>
-        <div style={{overflowX:'auto'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-            <thead>
-              <tr style={{background:'#f0fafa'}}>
-                {['Nº','Cliente','Vencimento','Honorários','Status','Assinatura'].map(h=>(
-                  <th key={h} style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:C.muted,fontSize:12,borderBottom:`1px solid ${C.border}`}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {!(data.recentes||[]).length
-                ? <tr><td colSpan={6} style={{padding:30,textAlign:'center',color:C.muted}}>Nenhum contrato cadastrado</td></tr>
-                : (data.recentes||[]).map((c,i)=>{
-                    const bs=badgeStatus(c.status), ba=badgeAssin(c.statusAssin);
-                    return (
-                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i%2?'#fafffe':'#fff'}}>
-                        <td style={{padding:'10px 14px',fontWeight:600,color:C.dark}}>{c.numero}</td>
-                        <td style={{padding:'10px 14px',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.cliente}</td>
-                        <td style={{padding:'10px 14px',color:C.muted}}>{c.vencimento}</td>
-                        <td style={{padding:'10px 14px',fontWeight:600,color:'#1b5e20'}}>{fmtMoeda(c.honorario)}</td>
-                        <td style={{padding:'10px 14px'}}><Badge text={bs.label} bg={bs.bg} color={bs.color}/></td>
-                        <td style={{padding:'10px 14px'}}><Badge text={ba.label} bg={ba.bg} color={ba.color}/></td>
-                      </tr>
-                    );
-                  })
-              }
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
+
+      {/* Contratos vencidos */}
+      {contratosVencidos.length > 0 && (
+        <AlertBox
+          icon="🔴" bg="#fdecea" border="#f5c6cb" titleColor="#7f1d1d"
+          title={`${contratosVencidos.length} contrato(s) vencido(s)`}
+          subtitulo={contratosVencidos.slice(0,4).map(c=>c.cliente).join(' · ')+(contratosVencidos.length>4?' · ...':'')}
+          onClick={()=>setView&&setView('contratos')} btnLabel="Ver Contratos"
+        />
+      )}
+
+      {/* Contratos vencendo */}
+      {contratosVencendo.length > 0 && (
+        <AlertBox
+          icon="⚠️" bg="#fff8e1" border="#ffe082" titleColor="#856404"
+          title={`${contratosVencendo.length} contrato(s) vencendo nos próximos 60 dias`}
+          subtitulo={contratosVencendo.slice(0,4).map(c=>`${c.cliente} (${c.vencimento})`).join(' · ')+(contratosVencendo.length>4?' · ...':'')}
+          onClick={()=>setView&&setView('contratos')} btnLabel="Ver Contratos"
+        />
+      )}
+
+      {/* Alvarás vencidos */}
+      {alvarasVencidos.length > 0 && (
+        <AlertBox
+          icon="🚨" bg="#fdecea" border="#f5c6cb" titleColor="#7f1d1d"
+          title={`${alvarasVencidos.length} alvará(s) vencido(s)`}
+          subtitulo={alvarasVencidos.slice(0,4).map(a=>a.empresa).join(' · ')+(alvarasVencidos.length>4?' · ...':'')}
+          onClick={()=>setView&&setView('alvaras')} btnLabel="Ver Alvarás"
+        />
+      )}
+
+      {/* Alvarás a renovar */}
+      {alvarasRenovar.length > 0 && (
+        <AlertBox
+          icon="🔔" bg="#fff8e1" border="#ffc107" titleColor="#856404"
+          title={`${alvarasRenovar.length} alvará(s) a vencer em 60 dias`}
+          subtitulo={alvarasRenovar.slice(0,4).map(a=>a.empresa).join(' · ')+(alvarasRenovar.length>4?' · ...':'')}
+          onClick={()=>setView&&setView('alvaras')} btnLabel="Ver Alvarás"
+        />
+      )}
+
+      {/* Processos Junta parados */}
+      {processosDemorados.length > 0 && (
+        <AlertBox
+          icon="🏛️" bg="#f3e8ff" border="#c084fc" titleColor="#5b21b6"
+          title={`${processosDemorados.length} processo(s) na Junta há mais de 10 dias sem conclusão`}
+          subtitulo={processosDemorados.slice(0,4).map(p=>{
+            const [d,m,a]=p.dtCriacao.split('/');
+            const dias=Math.floor((hoje-new Date(+a,+m-1,+d))/86400000);
+            return `${p.razao||p.numero} (${dias}d)`;
+          }).join(' · ')+(processosDemorados.length>4?' · ...':'')}
+          onClick={()=>setView&&setView('societario')} btnLabel="Ver Societário"
+        />
+      )}
     </div>
   );
 }
@@ -1238,7 +1291,7 @@ const SOC_FORM_INICIAL = {
   alvara:'Não', im:'',
   inscrImobil:'', mtgImovel:'', mtgEstab:'',
   endLogradouro:'', endNumero:'', endBairro:'', endCidade:'', endEstado:'PR',
-  vlServico:'', stPgto:'Pendente', honMensal:'', obs:'',
+  vlServico:'', stPgto:'Pendente', vlPago:'', honMensal:'', obs:'',
 };
 
 // Chaves de campos alteráveis (Alteração Contratual)
@@ -1580,7 +1633,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
-      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td><span class="ck"></span> ⏳ Pendente &nbsp;— Nº Proc: _____________</td></tr>
+      <tr><td class="lbl">Número do Processo</td><td><span class="ck"></span> ⏳ Pendente &nbsp;— Nº Proc: _____________</td></tr>
       <tr><td class="lbl">Prefeitura</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
       <tr><td class="lbl">DBE</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
       <tr><td class="lbl">Taxa Junta Comercial</td><td><span class="ck"></span> ⏳ Pendente</td></tr>
@@ -1626,7 +1679,7 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
 
   const STEPS = ['Identificação','Dados Técnicos','Financeiro'];
   const canNext1 = form.razao && (form.tipo==='Alteração' || form.socios[0]?.nome);
-  const canNext2 = form.capital && form.regime;
+  const canNext2 = (form.capital || bloq('capital')) && form.regime;
 
   // ── Step 1: Identificação ─────────────────────────────────────────────────
   const step1jsx = (
@@ -1907,11 +1960,6 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
           <Sel value={form.alvara} onChange={v=>set('alvara',v)}
             options={[{value:'Não',label:'Não'},{value:'Sim',label:'Sim'}]}/>
         </Field>
-        {form.alvara==='Sim' && (
-          <Field label="IM (Inscrição Municipal)" hint="Preencher após obter">
-            <Inp value={form.im} onChange={v=>set('im',v)} placeholder="01.01.147.0020.001"/>
-          </Field>
-        )}
       </div>
     </div>
   );
@@ -1929,6 +1977,19 @@ function NovoSocietarioWizard({ onClose, onSalvo }) {
             <Sel value={form.stPgto} onChange={v=>set('stPgto',v)}
               options={[{value:'Pendente',label:'Pendente'},{value:'Parcial',label:'Parcial'},{value:'Pago',label:'Pago'}]}/>
           </Field>
+          {form.stPgto==='Parcial' && (
+            <Field label="Valor já pago">
+              <MoneyInp value={form.vlPago} onChange={v=>set('vlPago',v)}/>
+            </Field>
+          )}
+          {form.stPgto==='Parcial' && form.vlServico && form.vlPago && (
+            <div style={{gridColumn:'1/-1',background:'#fff8e1',border:'1px solid #ffe082',borderRadius:10,padding:'10px 14px',fontSize:13}}>
+              <span style={{color:'#856404',fontWeight:700}}>💰 Saldo a pagar: </span>
+              <span style={{color:'#856404',fontWeight:800,fontSize:15}}>
+                {fmtMoeda(Math.max(0, parseFloat(form.vlServico.replace(/\./g,'').replace(',','.')) - parseFloat(form.vlPago.replace(/\./g,'').replace(',','.'))))}
+              </span>
+            </div>
+          )}
           {form.tipo==='Abertura' && (
             <Field label="Honorário Mensal (novo contrato)" hint="Mensalidade da nova empresa">
               <MoneyInp value={form.honMensal} onChange={v=>set('honMensal',v)}/>
@@ -2079,7 +2140,7 @@ function Societario() {
       ${logoFicha?`<img src="${logoFicha}" style="height:60px;object-fit:contain;max-width:180px;" alt="Logo"/>`:'<div style="width:180px;height:60px;border:2px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#999;font-size:11px;border-radius:6px">Adicione a logo em<br>Configurações</div>'}
     </div>
     <h2>${p.tipo==='Abertura'?'📋 Ficha de Abertura de Empresa':'📋 Ficha de Alteração Contratual'} — ${p.numero}</h2>
-    ${p.checklist?.codJucpr?`<div style="font-size:13px;color:#1B6963;font-weight:700;margin:-10px 0 14px 0;padding:6px 12px;background:#e8f5e9;border-radius:6px;display:inline-block">🏛️ Nº Processo Junta Comercial (JUCPR): <strong>${p.checklist.codJucpr}</strong></div>`:''}
+    ${p.checklist?.codJucpr?`<div style="font-size:13px;color:#1B6963;font-weight:700;margin:-10px 0 14px 0;padding:6px 12px;background:#e8f5e9;border-radius:6px;display:inline-block">🏛️ Número do Processo: <strong>${p.checklist.codJucpr}</strong></div>`:''}
 
     <table>
       <tr><td class="sec" colspan="2">Dados da Empresa</td></tr>
@@ -2124,7 +2185,7 @@ function Societario() {
     </table>
     <table>
       <tr><td class="sec" colspan="2">Checklist de Etapas</td></tr>
-      <tr><td class="lbl">Junta Comercial (JUCPR)</td><td>${(p.checklist?.jucpr||'').includes('Concluído')?'☑ Concluído':(p.checklist?.jucpr==='N/A'?'☐ N/A':'☐')}${p.checklist?.codJucpr?` &nbsp;·&nbsp; <strong>Nº Proc:</strong> ${p.checklist.codJucpr}`:' &nbsp;— Nº Proc: _____________'}</td></tr>
+      <tr><td class="lbl">Número do Processo</td><td>${(p.checklist?.jucpr||'').includes('Concluído')?'☑ Concluído':(p.checklist?.jucpr==='N/A'?'☐ N/A':'☐')}${p.checklist?.codJucpr?` &nbsp;·&nbsp; <strong>Nº Proc:</strong> ${p.checklist.codJucpr}`:' &nbsp;— Nº Proc: _____________'}</td></tr>
       <tr><td class="lbl">Prefeitura</td><td>${(p.checklist?.prefeitura||'').includes('Concluído')?'☑ Concluído':(p.checklist?.prefeitura==='N/A'?'☐ N/A':'☐')}</td></tr>
       <tr><td class="lbl">DBE</td><td>${(p.checklist?.dbe||'').includes('Concluído')?'☑ Concluído':(p.checklist?.dbe==='N/A'?'☐ N/A':'☐')}</td></tr>
       <tr><td class="lbl">Taxa Junta Comercial</td><td>${(p.checklist?.taxaJunta||'').includes('Concluído')?'☑ Concluído':(p.checklist?.taxaJunta==='N/A'?'☐ N/A':'☐')}</td></tr>
@@ -2150,7 +2211,7 @@ function Societario() {
   }
 
   const CK_ITEMS = [
-    {key:'ckJucpr',     label:'Junta Comercial (JUCPR)', hasCode:true},
+    {key:'ckJucpr',     label:'Número do Processo', hasCode:true},
     {key:'ckPrefeitura',label:'Prefeitura'},
     {key:'ckDbe',       label:'DBE'},
     {key:'ckTaxaJunta', label:'Taxa Junta Comercial'},
@@ -2258,7 +2319,7 @@ function Societario() {
                       style={{padding:'4px 12px',borderRadius:8,background:'#f0fafa',color:C.med,border:`1px solid ${C.border}`,cursor:'pointer',fontWeight:600,fontSize:12}}>
                       📄 Ficha
                     </button>
-                    <button onClick={e=>{e.stopPropagation(); if(confirm('Cancelar este processo?')){ atualizarCampo(p.numero,'stProcesso','❌ Cancelado'); const nl=[...lista]; nl[i]={...p,stProcesso:'❌ Cancelado'}; setLista(nl); }}}
+                    <button onClick={e=>{e.stopPropagation(); if(confirm('Cancelar este processo?')){ atualizarCampo(p.numero,'stProcesso','❌ Cancelado'); atualizarCampo(p.numero,'stAprovacao','❌ Cancelado'); const nl=[...lista]; nl[i]={...p,stProcesso:'❌ Cancelado',stAprovacao:'❌ Cancelado'}; setLista(nl); }}}
                       style={{padding:'4px 10px',borderRadius:8,background:'#fff8e1',color:'#856404',border:'1px solid #ffe082',cursor:'pointer',fontWeight:600,fontSize:12}}>
                       ⏸ Cancelar
                     </button>
@@ -2299,7 +2360,7 @@ function Societario() {
                                 type="text"
                                 value={ckVals.codJucpr||''}
                                 onChange={e=>{ atualizarCampo(p.numero,'codJucpr',e.target.value); const nl=[...lista]; nl[i]={...p,checklist:{...ckVals,codJucpr:e.target.value}}; setLista(nl); }}
-                                placeholder="Nº Processo Junta (preencher após protocolo)"
+                                placeholder="Número do Processo (preencher após protocolo)"
                                 style={{width:'100%',marginTop:4,padding:'4px 8px',borderRadius:6,border:`1px solid ${C.border}`,fontSize:12,boxSizing:'border-box'}}
                               />
                             )}
