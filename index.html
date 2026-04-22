@@ -2087,14 +2087,13 @@ function ObsEditor({ numero, obsInicial, onSave, atualizarCampo }) {
 }
 
 // ── Modal de Edição de Processo Societário ────────────────────────────────────
-function EditarSocietarioModal({ processo, onClose, onSalvo }) {
-  const inp = {
-    width:'100%', padding:'8px 10px', borderRadius:8, border:`1px solid ${C.border}`,
-    fontSize:13, color:C.text, background:'#fff', boxSizing:'border-box',
-  };
-  const sel = {...inp, cursor:'pointer'};
-  const ta  = {...inp, resize:'vertical', minHeight:72, fontFamily:'inherit'};
+const ES_INP = {width:'100%',padding:'8px 10px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,color:C.text,background:'#fff',boxSizing:'border-box'};
+const ES_SEL = {...ES_INP,cursor:'pointer'};
+const ES_TA  = {...ES_INP,resize:'vertical',minHeight:72,fontFamily:'inherit'};
+const ES_SEC = {gridColumn:'1/-1',fontWeight:700,color:C.dark,fontSize:13,borderBottom:`2px solid ${C.border}`,paddingBottom:4,marginTop:8};
+const ES_LBL = {fontSize:11.5,color:C.muted,fontWeight:600,marginBottom:3};
 
+function EditarSocietarioModal({ processo, onClose, onSalvo }) {
   const [form, setForm] = useState({
     tipo:        processo.tipo        || 'Abertura',
     razao:       processo.razao       || '',
@@ -2104,7 +2103,7 @@ function EditarSocietarioModal({ processo, onClose, onSalvo }) {
     email:       processo.email       || '',
     socios:      processo.socios      || '',
     endereco:    processo.endereco    || '',
-    capital:     processo.capital     || '',
+    capital:     String(processo.capital  || ''),
     regime:      processo.regime      || 'Simples Nacional',
     cnaeCod:     processo.cnaeCod     || '',
     cnaeDesc:    processo.cnaeDesc    || '',
@@ -2113,11 +2112,11 @@ function EditarSocietarioModal({ processo, onClose, onSalvo }) {
     alvara:      processo.alvara      || 'Não',
     im:          processo.im          || '',
     inscrImobil: processo.inscrImobil || '',
-    mtgImovel:   processo.mtgImovel   || '',
-    mtgEstab:    processo.mtgEstab    || '',
-    vlServico:   processo.vlServico   || '',
+    mtgImovel:   String(processo.mtgImovel  || ''),
+    mtgEstab:    String(processo.mtgEstab   || ''),
+    vlServico:   String(processo.vlServico  || ''),
     stPgto:      processo.stPgto      || 'Pendente',
-    honMensal:   processo.honMensal   || '',
+    honMensal:   String(processo.honMensal  || ''),
     obs:         processo.obs         || '',
   });
   const [salvando, setSalvando] = useState(false);
@@ -2134,24 +2133,11 @@ function EditarSocietarioModal({ processo, onClose, onSalvo }) {
     finally{ setSalvando(false); }
   }
 
-  const Sec = ({label}) => (
-    <div style={{gridColumn:'1/-1',fontWeight:700,color:C.dark,fontSize:13,
-      borderBottom:`2px solid ${C.border}`,paddingBottom:4,marginTop:8}}>
-      {label}
-    </div>
-  );
-  const F = ({label,children}) => (
-    <div>
-      <div style={{fontSize:11.5,color:C.muted,fontWeight:600,marginBottom:3}}>{label}</div>
-      {children}
-    </div>
-  );
-
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',
       alignItems:'flex-start',justifyContent:'center',zIndex:1100,padding:'20px 12px',overflowY:'auto'}}>
       <div style={{background:'#fff',borderRadius:18,width:'100%',maxWidth:680,
-        boxShadow:'0 8px 40px rgba(27,105,99,0.18)',overflow:'hidden'}}>
+        boxShadow:'0 8px 40px rgba(27,105,99,0.18)',overflow:'hidden',marginBottom:20}}>
 
         {/* Header */}
         <div style={{background:C.dark,padding:'16px 22px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -2159,108 +2145,110 @@ function EditarSocietarioModal({ processo, onClose, onSalvo }) {
             <div style={{color:'#fff',fontWeight:800,fontSize:16}}>✏️ Editar Processo</div>
             <div style={{color:'#a8d5d1',fontSize:12,marginTop:2}}>{processo.numero} · {processo.razao}</div>
           </div>
-          <button onClick={onClose}
-            style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',
-              borderRadius:8,padding:'6px 12px',cursor:'pointer',fontSize:13,fontWeight:600}}>
-            ✕ Fechar
-          </button>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.15)',border:'none',color:'#fff',borderRadius:8,padding:'6px 12px',cursor:'pointer',fontSize:13,fontWeight:600}}>✕ Fechar</button>
         </div>
 
         {/* Body */}
         <div style={{padding:'22px 22px 8px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
 
-          <Sec label="📋 Dados da Empresa"/>
-          <F label="Tipo">
-            <select value={form.tipo} onChange={e=>set('tipo',e.target.value)} style={sel}>
-              <option>Abertura</option>
-              <option>Alteração</option>
+          <div style={ES_SEC}>📋 Dados da Empresa</div>
+          <div><div style={ES_LBL}>Tipo</div>
+            <select value={form.tipo} onChange={e=>set('tipo',e.target.value)} style={ES_SEL}>
+              <option>Abertura</option><option>Alteração</option>
             </select>
-          </F>
-          <F label="CNPJ"><input value={form.cnpj} onChange={e=>set('cnpj',maskCNPJ(e.target.value))} style={inp} maxLength={18}/></F>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="Razão Social *"><input value={form.razao} onChange={e=>set('razao',e.target.value)} style={inp}/></F>
           </div>
-          <F label="Nome Fantasia"><input value={form.fantasia} onChange={e=>set('fantasia',e.target.value)} style={inp}/></F>
-          <F label="Telefone"><input value={form.telefone} onChange={e=>set('telefone',maskTel(e.target.value))} style={inp} maxLength={15}/></F>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="E-mail"><input value={form.email} onChange={e=>set('email',e.target.value)} style={inp} type="email"/></F>
+          <div><div style={ES_LBL}>CNPJ</div>
+            <input value={form.cnpj} onChange={e=>set('cnpj',maskCNPJ(e.target.value))} style={ES_INP} maxLength={18}/>
           </div>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="Endereço"><input value={form.endereco} onChange={e=>set('endereco',e.target.value)} style={inp}/></F>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>Razão Social *</div>
+            <input value={form.razao} onChange={e=>set('razao',e.target.value)} style={ES_INP}/>
+          </div>
+          <div><div style={ES_LBL}>Nome Fantasia</div>
+            <input value={form.fantasia} onChange={e=>set('fantasia',e.target.value)} style={ES_INP}/>
+          </div>
+          <div><div style={ES_LBL}>Telefone</div>
+            <input value={form.telefone} onChange={e=>set('telefone',maskTel(e.target.value))} style={ES_INP} maxLength={15}/>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>E-mail</div>
+            <input value={form.email} onChange={e=>set('email',e.target.value)} style={ES_INP} type="email"/>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>Endereço</div>
+            <input value={form.endereco} onChange={e=>set('endereco',e.target.value)} style={ES_INP}/>
           </div>
 
-          <Sec label="👥 Sócios"/>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="Quadro de Sócios (texto livre)">
-              <textarea value={form.socios} onChange={e=>set('socios',e.target.value)} style={ta} rows={4}/>
-            </F>
+          <div style={ES_SEC}>👥 Sócios</div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>Quadro de Sócios (texto livre)</div>
+            <textarea value={form.socios} onChange={e=>set('socios',e.target.value)} style={ES_TA} rows={4}/>
           </div>
 
-          <Sec label="🏗️ Dados Técnicos"/>
-          <F label="Capital Social">
+          <div style={ES_SEC}>🏗️ Dados Técnicos</div>
+          <div><div style={ES_LBL}>Capital Social</div>
             <MoneyInp value={form.capital} onChange={v=>set('capital',v)}/>
-          </F>
-          <F label="Regime Tributário">
-            <select value={form.regime} onChange={e=>set('regime',e.target.value)} style={sel}>
-              <option>Simples Nacional</option>
-              <option>Lucro Presumido</option>
-              <option>Lucro Real</option>
-              <option>MEI</option>
-            </select>
-          </F>
-          <F label="CNAE Principal (código)"><input value={form.cnaeCod} onChange={e=>set('cnaeCod',e.target.value)} style={inp}/></F>
-          <F label="CNAE Principal (descrição)"><input value={form.cnaeDesc} onChange={e=>set('cnaeDesc',e.target.value)} style={inp}/></F>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="CNAEs Secundários"><input value={form.cnaeSec} onChange={e=>set('cnaeSec',e.target.value)} style={inp}/></F>
           </div>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="Objeto Social"><textarea value={form.objeto} onChange={e=>set('objeto',e.target.value)} style={ta}/></F>
-          </div>
-          <F label="Precisa Alvará?">
-            <select value={form.alvara} onChange={e=>set('alvara',e.target.value)} style={sel}>
-              <option>Não</option>
-              <option>Sim</option>
+          <div><div style={ES_LBL}>Regime Tributário</div>
+            <select value={form.regime} onChange={e=>set('regime',e.target.value)} style={ES_SEL}>
+              <option>Simples Nacional</option><option>Lucro Presumido</option>
+              <option>Lucro Real</option><option>MEI</option>
             </select>
-          </F>
+          </div>
+          <div><div style={ES_LBL}>CNAE Principal (código)</div>
+            <input value={form.cnaeCod} onChange={e=>set('cnaeCod',e.target.value)} style={ES_INP}/>
+          </div>
+          <div><div style={ES_LBL}>CNAE Principal (descrição)</div>
+            <input value={form.cnaeDesc} onChange={e=>set('cnaeDesc',e.target.value)} style={ES_INP}/>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>CNAEs Secundários</div>
+            <input value={form.cnaeSec} onChange={e=>set('cnaeSec',e.target.value)} style={ES_INP}/>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>Objeto Social</div>
+            <textarea value={form.objeto} onChange={e=>set('objeto',e.target.value)} style={ES_TA}/>
+          </div>
+          <div><div style={ES_LBL}>Precisa Alvará?</div>
+            <select value={form.alvara} onChange={e=>set('alvara',e.target.value)} style={ES_SEL}>
+              <option>Não</option><option>Sim</option>
+            </select>
+          </div>
           {form.alvara==='Sim' && (
-            <F label="IM (Inscrição Municipal)"><input value={form.im} onChange={e=>set('im',e.target.value)} style={inp}/></F>
+            <div><div style={ES_LBL}>IM (Inscrição Municipal)</div>
+              <input value={form.im} onChange={e=>set('im',e.target.value)} style={ES_INP}/>
+            </div>
           )}
 
-          <Sec label="🏠 Dados do Imóvel"/>
-          <F label="Inscrição Imobiliária"><input value={form.inscrImobil} onChange={e=>set('inscrImobil',e.target.value)} style={inp}/></F>
-          <F label="Metragem do Imóvel (m²)"><input value={form.mtgImovel} onChange={e=>set('mtgImovel',e.target.value)} style={inp} type="number"/></F>
-          <F label="Metragem do Estabelecimento (m²)"><input value={form.mtgEstab} onChange={e=>set('mtgEstab',e.target.value)} style={inp} type="number"/></F>
+          <div style={ES_SEC}>🏠 Dados do Imóvel</div>
+          <div><div style={ES_LBL}>Inscrição Imobiliária</div>
+            <input value={form.inscrImobil} onChange={e=>set('inscrImobil',e.target.value)} style={ES_INP}/>
+          </div>
+          <div><div style={ES_LBL}>Metragem do Imóvel (m²)</div>
+            <input value={form.mtgImovel} onChange={e=>set('mtgImovel',e.target.value)} style={ES_INP} type="number"/>
+          </div>
+          <div><div style={ES_LBL}>Metragem do Estabelecimento (m²)</div>
+            <input value={form.mtgEstab} onChange={e=>set('mtgEstab',e.target.value)} style={ES_INP} type="number"/>
+          </div>
 
-          <Sec label="💰 Financeiro"/>
-          <F label="Valor do Serviço"><MoneyInp value={form.vlServico} onChange={v=>set('vlServico',v)}/></F>
-          <F label="Honorário Mensal"><MoneyInp value={form.honMensal} onChange={v=>set('honMensal',v)}/></F>
-          <F label="Status Pagamento">
-            <select value={form.stPgto} onChange={e=>set('stPgto',e.target.value)} style={sel}>
-              <option>Pendente</option>
-              <option>Parcial</option>
-              <option>Pago</option>
+          <div style={ES_SEC}>💰 Financeiro</div>
+          <div><div style={ES_LBL}>Valor do Serviço</div>
+            <MoneyInp value={form.vlServico} onChange={v=>set('vlServico',v)}/>
+          </div>
+          <div><div style={ES_LBL}>Honorário Mensal</div>
+            <MoneyInp value={form.honMensal} onChange={v=>set('honMensal',v)}/>
+          </div>
+          <div><div style={ES_LBL}>Status Pagamento</div>
+            <select value={form.stPgto} onChange={e=>set('stPgto',e.target.value)} style={ES_SEL}>
+              <option>Pendente</option><option>Parcial</option><option>Pago</option>
             </select>
-          </F>
+          </div>
 
-          <Sec label="📝 Observações"/>
-          <div style={{gridColumn:'1/-1'}}>
-            <F label="Obs">
-              <textarea value={form.obs} onChange={e=>set('obs',e.target.value)} style={ta}/>
-            </F>
+          <div style={ES_SEC}>📝 Observações</div>
+          <div style={{gridColumn:'1/-1'}}><div style={ES_LBL}>Obs</div>
+            <textarea value={form.obs} onChange={e=>set('obs',e.target.value)} style={ES_TA}/>
           </div>
         </div>
 
         {/* Footer */}
         <div style={{padding:'16px 22px',borderTop:`1px solid ${C.border}`,display:'flex',gap:10,justifyContent:'flex-end',alignItems:'center'}}>
           {erro && <span style={{color:'#b71c1c',fontSize:13,flex:1}}>{erro}</span>}
-          <button onClick={onClose}
-            style={{padding:'9px 20px',borderRadius:10,background:'#f0f0f0',color:C.text,
-              border:`1px solid ${C.border}`,cursor:'pointer',fontWeight:600,fontSize:13}}>
-            Cancelar
-          </button>
-          <button onClick={salvar} disabled={salvando}
-            style={{padding:'9px 24px',borderRadius:10,background:C.dark,color:'#fff',
-              border:'none',cursor:'pointer',fontWeight:700,fontSize:13,opacity:salvando?0.7:1}}>
+          <button onClick={onClose} style={{padding:'9px 20px',borderRadius:10,background:'#f0f0f0',color:C.text,border:`1px solid ${C.border}`,cursor:'pointer',fontWeight:600,fontSize:13}}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{padding:'9px 24px',borderRadius:10,background:C.dark,color:'#fff',border:'none',cursor:'pointer',fontWeight:700,fontSize:13,opacity:salvando?0.7:1}}>
             {salvando ? '💾 Salvando...' : '💾 Salvar Alterações'}
           </button>
         </div>
