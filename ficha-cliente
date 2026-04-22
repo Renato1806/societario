@@ -1,1 +1,609 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ficha de Cadastro — FSC Facilita</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f4f7f6;
+      color: #1a1a1a;
+      min-height: 100vh;
+    }
+    .header {
+      background: #1B6963;
+      color: #fff;
+      padding: 20px 24px;
+      text-align: center;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; }
+    .header p  { font-size: 13px; opacity: 0.8; margin-top: 4px; }
 
+    .container {
+      max-width: 680px;
+      margin: 32px auto;
+      padding: 0 16px 48px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid #d9e8e6;
+      box-shadow: 0 2px 8px rgba(27,105,99,0.08);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1B6963;
+      margin-bottom: 18px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e0f0ee;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #4a7c75;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .field label .req { color: #e53935; margin-left: 2px; }
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #c8dbd9;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #1a1a1a;
+      background: #fafffe;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: #1B6963;
+      background: #fff;
+    }
+    .field textarea { resize: vertical; min-height: 90px; }
+    .field .hint {
+      font-size: 11px;
+      color: #8eada9;
+      margin-top: 4px;
+    }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    @media (max-width: 540px) {
+      .grid2, .grid3 { grid-template-columns: 1fr; }
+    }
+
+    /* Upload área */
+    .upload-area {
+      border: 2px dashed #a8cdc9;
+      border-radius: 10px;
+      padding: 28px 16px;
+      text-align: center;
+      background: #f0fafa;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-area:hover { border-color: #1B6963; background: #e8f5f4; }
+    .upload-area input[type=file] { display: none; }
+    .upload-area .icon { font-size: 32px; margin-bottom: 8px; }
+    .upload-area .txt { font-size: 13px; color: #4a7c75; font-weight: 600; }
+    .upload-area .sub { font-size: 11px; color: #8eada9; margin-top: 4px; }
+    .file-preview {
+      margin-top: 10px;
+      background: #e8f5f4;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #1B6963;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .file-preview button {
+      margin-left: auto;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #b71c1c;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      background: #1B6963;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.2s;
+    }
+    .btn-submit:hover:not(:disabled) { background: #145551; }
+    .btn-submit:disabled { background: #7eaaa6; cursor: not-allowed; }
+
+    .msg {
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .msg.ok  { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
+    .msg.err { background: #fdecea; color: #7f1d1d; border: 1px solid #f5c6cb; }
+
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 3px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .success-screen {
+      text-align: center;
+      padding: 48px 24px;
+    }
+    .success-screen .icon { font-size: 64px; margin-bottom: 20px; }
+    .success-screen h2 { font-size: 22px; font-weight: 700; color: #1B6963; margin-bottom: 10px; }
+    .success-screen p  { font-size: 14px; color: #4a7c75; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📋 Ficha de Cadastro</h1>
+  <p>Preencha as informações abaixo para abertura da sua empresa</p>
+</div>
+
+<div class="container">
+  <div id="app">
+    <!-- Renderizado via JS -->
+  </div>
+</div>
+
+<script>
+const API_URL = 'https://script.google.com/macros/s/AKfycbyvRTOfOyjh44rJ78ijGiTLlmNX_UM6tIeVRGYtKY6aUNQ93xon6xdoxCTVlv2lFHsq/exec';
+
+const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+
+// Mapa de arquivos: { chave: File }
+const uploadedFiles = {};
+
+const DOCS = [
+  { key:'rgFrente',    label:'RG — Frente',                        icon:'🪪', obrig:false },
+  { key:'rgVerso',     label:'RG — Verso',                         icon:'🪪', obrig:false },
+  { key:'cnh',         label:'CNH (frente e verso)',               icon:'🚗', obrig:false },
+  { key:'comprResid',  label:'Comprovante de Residência Pessoal',  icon:'🏠', obrig:false },
+  { key:'comprEmp',    label:'Comprovante de Endereço da Empresa (IPTU, conta ou contrato)', icon:'🏢', obrig:false },
+  { key:'certidao',    label:'Certidão de Nascimento / Casamento', icon:'💍', obrig:false },
+  { key:'outro',       label:'Outro Documento',                    icon:'📋', obrig:false },
+];
+
+function maskCPF(v){return v.replace(/\D/g,'').slice(0,11).replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');}
+function maskCNPJ(v){return v.replace(/\D/g,'').slice(0,14).replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2');}
+function maskTel(v){v=v.replace(/\D/g,'').slice(0,11);if(v.length<=10)return v.replace(/^(\d{2})(\d{4})(\d{0,4})$/,'($1) $2-$3');return v.replace(/^(\d{2})(\d{5})(\d{0,4})$/,'($1) $2-$3');}
+function maskCEP(v){return v.replace(/\D/g,'').slice(0,8).replace(/(\d{5})(\d)/,'$1-$2');}
+
+function $(id){ return document.getElementById(id); }
+
+async function buscarCEP(cepId, logId, bairroId, cidId, ufId) {
+  const cep = $(`inp_${cepId}`).value.replace(/\D/g,'');
+  if(cep.length !== 8) return;
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const d = await r.json();
+    if(!d.erro) {
+      if($(`inp_${logId}`)) $(`inp_${logId}`).value = d.logradouro||'';
+      if($(`inp_${bairroId}`)) $(`inp_${bairroId}`).value = d.bairro||'';
+      if($(`inp_${cidId}`)) $(`inp_${cidId}`).value = d.localidade||'';
+      if($(`inp_${ufId}`)) $(`inp_${ufId}`).value = d.uf||'PR';
+    }
+  } catch(e) {}
+}
+
+function renderForm() {
+  $('app').innerHTML = `
+    <form id="fichaForm" onsubmit="enviarFicha(event)">
+
+      <!-- Dados Pessoais -->
+      <div class="card">
+        <div class="card-title">👤 Dados Pessoais do Sócio / Responsável</div>
+        <div class="field">
+          <label>Nome Completo <span class="req">*</span></label>
+          <input id="inp_nome" type="text" required placeholder="Nome conforme RG/CNH"/>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>CPF <span class="req">*</span></label>
+            <input id="inp_cpf" type="text" required placeholder="000.000.000-00" maxlength="14"
+              oninput="this.value=maskCPF(this.value)"/>
+          </div>
+          <div class="field">
+            <label>RG</label>
+            <input id="inp_rg" type="text" placeholder="0.000.000-0"/>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Data de Nascimento <span class="req">*</span></label>
+            <input id="inp_dtNasc" type="date" required/>
+          </div>
+          <div class="field">
+            <label>Estado Civil</label>
+            <select id="inp_estadoCivil">
+              <option value="">Selecione</option>
+              <option>Solteiro(a)</option>
+              <option>Casado(a)</option>
+              <option>Divorciado(a)</option>
+              <option>Viúvo(a)</option>
+              <option>União Estável</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Telefone / WhatsApp <span class="req">*</span></label>
+            <input id="inp_tel" type="text" required placeholder="(41) 99999-9999" maxlength="15"
+              oninput="this.value=maskTel(this.value)"/>
+          </div>
+          <div class="field">
+            <label>E-mail pessoal <span class="req">*</span></label>
+            <input id="inp_email" type="email" required placeholder="seuemail@email.com"/>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>E-mail para cartão CNPJ</label>
+            <input id="inp_emailCnpj" type="email" placeholder="email para cadastro na Receita"/>
+            <div class="hint">Usado no cadastro da empresa na Receita Federal</div>
+          </div>
+          <div class="field">
+            <label>E-mail para sistemas do escritório</label>
+            <input id="inp_emailEscritorio" type="email" placeholder="email para acesso ao sistema"/>
+            <div class="hint">Usado para criação de acesso ao escritório</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Endereço pessoal -->
+      <div class="card">
+        <div class="card-title">🏠 Endereço Pessoal</div>
+        <div class="grid2">
+          <div class="field">
+            <label>CEP <span class="req">*</span></label>
+            <input id="inp_cepPes" type="text" required placeholder="00000-000" maxlength="9"
+              oninput="this.value=maskCEP(this.value)"
+              onblur="buscarCEP('cepPes','logPes','bairroPes','cidPes','ufPes')"/>
+          </div>
+          <div class="field">
+            <label>Logradouro <span class="req">*</span></label>
+            <input id="inp_logPes" type="text" required placeholder="Rua, Av, Travessa..."/>
+          </div>
+        </div>
+        <div class="grid3">
+          <div class="field">
+            <label>Número <span class="req">*</span></label>
+            <input id="inp_numPes" type="text" required placeholder="123"/>
+          </div>
+          <div class="field">
+            <label>Complemento</label>
+            <input id="inp_compPes" type="text" placeholder="Apto, Bloco..."/>
+          </div>
+          <div class="field">
+            <label>Bairro <span class="req">*</span></label>
+            <input id="inp_bairroPes" type="text" required placeholder="Bairro"/>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Cidade <span class="req">*</span></label>
+            <input id="inp_cidPes" type="text" required placeholder="Cidade"/>
+          </div>
+          <div class="field">
+            <label>Estado <span class="req">*</span></label>
+            <select id="inp_ufPes" required>
+              <option value="">UF</option>
+              ${UF_LIST.map(u=>`<option value="${u}">${u}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Endereço da empresa -->
+      <div class="card">
+        <div class="card-title">🏢 Endereço da Empresa</div>
+        <div class="field">
+          <label>Inscrição Imobiliária <span class="req">*</span></label>
+          <input id="inp_inscrImobil" type="text" required placeholder="Ex: 01.01.147.0020.001"/>
+          <div class="hint">Número da inscrição do imóvel na Prefeitura</div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Metragem Total do Imóvel (m²)</label>
+            <input id="inp_mtgImovel" type="text" placeholder="Ex: 120"/>
+          </div>
+          <div class="field">
+            <label>Metragem da Área da Empresa (m²)</label>
+            <input id="inp_mtgEstab" type="text" placeholder="Ex: 60"/>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>CEP <span class="req">*</span></label>
+            <input id="inp_cepEmp" type="text" required placeholder="00000-000" maxlength="9"
+              oninput="this.value=maskCEP(this.value)"
+              onblur="buscarCEP('cepEmp','logEmp','bairroEmp','cidEmp','ufEmp')"/>
+          </div>
+          <div class="field">
+            <label>Logradouro <span class="req">*</span></label>
+            <input id="inp_logEmp" type="text" required placeholder="Rua, Av, Travessa..."/>
+          </div>
+        </div>
+        <div class="grid3">
+          <div class="field">
+            <label>Número <span class="req">*</span></label>
+            <input id="inp_numEmp" type="text" required placeholder="123"/>
+          </div>
+          <div class="field">
+            <label>Complemento</label>
+            <input id="inp_compEmp" type="text" placeholder="Sala, Andar..."/>
+          </div>
+          <div class="field">
+            <label>Bairro <span class="req">*</span></label>
+            <input id="inp_bairroEmp" type="text" required placeholder="Bairro"/>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Cidade <span class="req">*</span></label>
+            <input id="inp_cidEmp" type="text" required placeholder="Cidade"/>
+          </div>
+          <div class="field">
+            <label>Estado <span class="req">*</span></label>
+            <select id="inp_ufEmp" required>
+              <option value="">UF</option>
+              ${UF_LIST.map(u=>`<option value="${u}">${u}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dados da Empresa -->
+      <div class="card">
+        <div class="card-title">🏭 Dados da Empresa</div>
+        <div class="field">
+          <label>Razão Social Pretendida <span class="req">*</span></label>
+          <input id="inp_razao" type="text" required placeholder="Ex: João Silva Serviços Ltda"/>
+          <div class="hint">Nome oficial que será registrado na Junta Comercial</div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Nome Fantasia</label>
+            <input id="inp_fantasia" type="text" placeholder="Nome comercial / marca"/>
+          </div>
+          <div class="field">
+            <label>Capital Social (R$) <span class="req">*</span></label>
+            <input id="inp_capital" type="text" required placeholder="Ex: 3.000,00"
+              oninput="this.value=fmtCapital(this.value)"/>
+            <div class="hint">Mínimo recomendado: R$ 3.000,00</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Atividades a Serem Desenvolvidas <span class="req">*</span></label>
+          <textarea id="inp_atividades" required
+            placeholder="Descreva com suas palavras o que a empresa irá fazer. Ex: Prestação de serviços de consultoria em informática, instalação e manutenção de equipamentos de TI..."></textarea>
+          <div class="hint">Quanto mais detalhado, melhor para escolhermos o CNAE correto</div>
+        </div>
+        <div class="field">
+          <label>Telefone da Empresa</label>
+          <input id="inp_telEmp" type="text" placeholder="(41) 99999-9999" maxlength="15"
+            oninput="this.value=maskTel(this.value)"/>
+        </div>
+      </div>
+
+      <!-- Upload de documentos -->
+      <div class="card">
+        <div class="card-title">📎 Documentos</div>
+        <p style="font-size:13px;color:#4a7c75;margin-bottom:18px;line-height:1.5">
+          Envie os documentos disponíveis. Formatos aceitos: <strong>JPG, PNG ou PDF</strong> · Máximo <strong>5 MB</strong> por arquivo.
+        </p>
+        <div id="docsContainer"></div>
+      </div>
+
+      <!-- Observações -->
+      <div class="card">
+        <div class="card-title">💬 Observações</div>
+        <div class="field">
+          <textarea id="inp_obs" placeholder="Alguma informação adicional que queira nos passar..."></textarea>
+        </div>
+      </div>
+
+      <div id="msgArea"></div>
+
+      <button type="submit" class="btn-submit" id="btnEnviar">
+        Enviar Ficha de Cadastro
+      </button>
+    </form>
+  `;
+}
+
+function fmtCapital(v) {
+  v = v.replace(/\D/g,'');
+  if(!v) return '';
+  v = (parseInt(v)/100).toFixed(2);
+  return v.replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+
+function renderDocs() {
+  const container = $('docsContainer');
+  if (!container) return;
+  container.innerHTML = DOCS.map(doc => `
+    <div style="margin-bottom:18px">
+      <label style="display:block;font-size:12px;font-weight:600;color:#4a7c75;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
+        ${doc.icon} ${doc.label}${doc.obrig?' <span style="color:#e53935">*</span>':''}
+      </label>
+      ${uploadedFiles[doc.key] ? `
+        <div class="file-preview">
+          📎 ${uploadedFiles[doc.key].name} (${(uploadedFiles[doc.key].size/1024).toFixed(0)} KB)
+          <button type="button" onclick="removerDoc('${doc.key}')">✕</button>
+        </div>
+      ` : `
+        <div class="upload-area" onclick="$('file_${doc.key}').click()" style="padding:16px 12px">
+          <input type="file" id="file_${doc.key}" accept="image/*,.pdf"
+            onchange="handleDoc(this,'${doc.key}')"/>
+          <div class="icon" style="font-size:22px;margin-bottom:4px">📄</div>
+          <div class="txt" style="font-size:12px">Clique para selecionar</div>
+          <div class="sub">JPG, PNG ou PDF · máx. 5 MB</div>
+        </div>
+      `}
+    </div>
+  `).join('');
+}
+
+function handleDoc(input, key) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert('Arquivo muito grande. Máximo permitido: 5 MB');
+    input.value = '';
+    return;
+  }
+  uploadedFiles[key] = file;
+  renderDocs();
+}
+
+function removerDoc(key) {
+  delete uploadedFiles[key];
+  const inp = $(`file_${key}`);
+  if (inp) inp.value = '';
+  renderDocs();
+}
+
+function coletarDados() {
+  const g = id => $(`inp_${id}`)?.value?.trim() || '';
+  return {
+    nome:           g('nome'),
+    cpf:            g('cpf'),
+    rg:             g('rg'),
+    dtNasc:         g('dtNasc'),
+    estadoCivil:    g('estadoCivil'),
+    tel:            g('tel'),
+    email:          g('email'),
+    emailCnpj:      g('emailCnpj'),
+    emailEscritorio:g('emailEscritorio'),
+    // Endereço pessoal
+    cepPes:     g('cepPes'),
+    logPes:     g('logPes'),
+    numPes:     g('numPes'),
+    compPes:    g('compPes'),
+    bairroPes:  g('bairroPes'),
+    cidPes:     g('cidPes'),
+    ufPes:      g('ufPes'),
+    // Endereço empresa
+    inscrImobil: g('inscrImobil'),
+    mtgImovel:   g('mtgImovel'),
+    mtgEstab:    g('mtgEstab'),
+    cepEmp:      g('cepEmp'),
+    logEmp:      g('logEmp'),
+    numEmp:      g('numEmp'),
+    compEmp:     g('compEmp'),
+    bairroEmp:   g('bairroEmp'),
+    cidEmp:      g('cidEmp'),
+    ufEmp:       g('ufEmp'),
+    // Empresa
+    razao:       g('razao'),
+    fantasia:    g('fantasia'),
+    capital:     g('capital'),
+    atividades:  g('atividades'),
+    telEmp:      g('telEmp'),
+    obs:         g('obs'),
+  };
+}
+
+async function enviarFicha(e) {
+  e.preventDefault();
+  const btn = $('btnEnviar');
+  const msg = $('msgArea');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Enviando...';
+  msg.innerHTML = '';
+
+  try {
+    const dados = coletarDados();
+
+    // Converte todos os arquivos para base64
+    const arquivos = [];
+    for (const doc of DOCS) {
+      const file = uploadedFiles[doc.key];
+      if (!file) continue;
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = ev => res(ev.target.result.split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      arquivos.push({ key: doc.key, label: doc.label, nome: file.name, tipo: file.type, base64 });
+    }
+    dados.arquivos = arquivos;
+
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'salvarFichaCliente', dados: JSON.stringify(dados) }),
+    });
+    const result = await resp.json();
+
+    if (result.ok) {
+      $('app').innerHTML = `
+        <div class="card success-screen">
+          <div class="icon">✅</div>
+          <h2>Ficha enviada com sucesso!</h2>
+          <p>
+            Obrigado, <strong>${dados.nome}</strong>!<br/>
+            Recebemos suas informações e entraremos em contato em breve.<br/><br/>
+            <span style="color:#1B6963;font-weight:600;">FSC Facilita Soluções Contábeis</span>
+          </p>
+        </div>
+      `;
+    } else {
+      throw new Error(result.error || 'Erro ao enviar. Tente novamente.');
+    }
+  } catch(err) {
+    msg.innerHTML = `<div class="msg err">⚠️ ${err.message}</div>`;
+    btn.disabled = false;
+    btn.innerHTML = 'Enviar Ficha de Cadastro';
+  }
+}
+
+// Inicializa
+renderForm();
+renderDocs();
+</script>
+</body>
+</html>
