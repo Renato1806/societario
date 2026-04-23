@@ -560,7 +560,29 @@ function renderForm() {
       </div>
     </div>
 
-    <!-- 3. Sócio Principal -->
+    <!-- 3. Contatos -->
+    <div class="card">
+      <div class="card-title">📞 Contatos</div>
+      <div class="grid2">
+        <div class="field">
+          <label>E-mail para Cartão CNPJ <span class="req">*</span></label>
+          <input id="inp_emailCnpj" type="email" required placeholder="email para cadastro na Receita"/>
+          <div class="hint">Usado no cadastro da empresa na Receita Federal</div>
+        </div>
+        <div class="field">
+          <label>E-mail para Acesso aos Sistemas <span class="req">*</span></label>
+          <input id="inp_emailEscritorio" type="email" required placeholder="email para acesso ao sistema"/>
+          <div class="hint">Usado para criação de acesso ao escritório</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Telefone da Empresa <span class="req">*</span></label>
+        <input id="inp_telEmp" type="text" required placeholder="(44) 99999-9999" maxlength="15"
+          oninput="this.value=maskTel(this.value)"/>
+      </div>
+    </div>
+
+    <!-- 4. Sócio Principal -->
     <div class="card">
       <div class="card-title">👤 Sócio / Responsável Principal</div>
       <div class="field">
@@ -620,33 +642,11 @@ function renderForm() {
       </div>
     </div>
 
-    <!-- 4. Sócios Adicionais (dinâmico) -->
+    <!-- 5. Sócios Adicionais (dinâmico) -->
     <div id="sociosContainer"></div>
     <button type="button" class="btn-add-socio" onclick="addSocio()">
       ➕ Adicionar Sócio
     </button>
-
-    <!-- 5. Contatos -->
-    <div class="card">
-      <div class="card-title">📞 Contatos</div>
-      <div class="grid2">
-        <div class="field">
-          <label>E-mail para Cartão CNPJ <span class="req">*</span></label>
-          <input id="inp_emailCnpj" type="email" required placeholder="email para cadastro na Receita"/>
-          <div class="hint">Usado no cadastro da empresa na Receita Federal</div>
-        </div>
-        <div class="field">
-          <label>E-mail para Acesso aos Sistemas <span class="req">*</span></label>
-          <input id="inp_emailEscritorio" type="email" required placeholder="email para acesso ao sistema"/>
-          <div class="hint">Usado para criação de acesso ao escritório</div>
-        </div>
-      </div>
-      <div class="field">
-        <label>Telefone da Empresa <span class="req">*</span></label>
-        <input id="inp_telEmp" type="text" required placeholder="(44) 99999-9999" maxlength="15"
-          oninput="this.value=maskTel(this.value)"/>
-      </div>
-    </div>
 
     <!-- 6. Endereço Pessoal -->
     <div class="card">
