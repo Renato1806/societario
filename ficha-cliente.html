@@ -104,6 +104,18 @@
       .container { margin-top: 12px; padding: 0 10px 80px; }
     }
 
+    /* Sub-seção dentro do card */
+    .subsec {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1B6963;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 20px 0 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e0f0ee;
+    }
+
     /* Sócio adicional */
     .socio-card {
       background: #f9fff9;
@@ -146,6 +158,18 @@
       touch-action: manipulation;
     }
     .btn-add-socio:active { background: #d0ebe8; }
+
+    /* Divisor de sub-endereço dentro do sócio-card */
+    .socio-subsec {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2e7d32;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 16px 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #c8e6c9;
+    }
 
     /* Upload área */
     .upload-area {
@@ -241,18 +265,27 @@
     .success-screen h2 { font-size: 20px; font-weight: 700; color: #1B6963; margin-bottom: 10px; }
     .success-screen p  { font-size: 15px; color: #4a7c75; line-height: 1.7; }
 
-    /* Seção de documentos com grupo */
+    /* Grupo de documentos */
     .doc-group-title {
       font-size: 12px;
       font-weight: 700;
       color: #1B6963;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin: 18px 0 10px;
+      margin: 20px 0 12px;
       padding-bottom: 6px;
       border-bottom: 1px solid #e0f0ee;
     }
     .doc-group-title:first-child { margin-top: 0; }
+    .doc-field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #4a7c75;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
   </style>
 </head>
 <body>
@@ -274,43 +307,25 @@ const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 const uploadedFiles = {};
 let sociosAdicionais = [];
 
-// Grupos de documentos
-const DOC_GRUPOS = [
-  {
-    titulo: '🪪 Identificação',
-    docs: [
-      { key:'rgFrente',      label:'RG — Frente' },
-      { key:'rgVerso',       label:'RG — Verso' },
-      { key:'cnh',           label:'CNH (frente e verso)' },
-      { key:'tituloEleitor', label:'Título de Eleitor' },
-      { key:'certidao',      label:'Certidão de Nascimento / Casamento' },
-    ]
-  },
-  {
-    titulo: '🏠 Endereço Pessoal',
-    docs: [
-      { key:'comprResid', label:'Comprovante de Residência Pessoal' },
-    ]
-  },
-  {
-    titulo: '🏢 Endereço da Empresa',
-    docs: [
-      { key:'contratoLoc', label:'Contrato de Locação' },
-      { key:'iptuImovel',  label:'IPTU do Imóvel' },
-      { key:'comprEnd',    label:'Comprovante de Endereço da Empresa' },
-    ]
-  },
-  {
-    titulo: '📎 Outros',
-    docs: [
-      { key:'outro', label:'Outro Documento' },
-    ]
-  },
+// ── Documentos por sócio ──────────────────────────────────────────────────────
+const DOCS_SOCIO = [
+  { key: 'rgFrente',      label: 'RG — Frente' },
+  { key: 'rgVerso',       label: 'RG — Verso' },
+  { key: 'cnh',           label: 'CNH (frente e verso)' },
+  { key: 'tituloEleitor', label: 'Título de Eleitor' },
+  { key: 'certidao',      label: 'Certidão de Nascimento / Casamento' },
+  { key: 'comprResid',    label: 'Comprovante de Residência' },
 ];
 
-// Lista plana para iteração no envio
-const DOCS_FLAT = DOC_GRUPOS.reduce((acc, g) => acc.concat(g.docs), []);
+// ── Documentos da empresa ─────────────────────────────────────────────────────
+const DOCS_EMPRESA = [
+  { key: 'contratoLoc', label: 'Contrato de Locação' },
+  { key: 'iptuImovel',  label: 'IPTU do Imóvel' },
+  { key: 'comprEnd',    label: 'Comprovante de Endereço da Empresa' },
+  { key: 'outro',       label: 'Outro Documento' },
+];
 
+// ── Máscaras ──────────────────────────────────────────────────────────────────
 function maskCPF(v){return v.replace(/\D/g,'').slice(0,11).replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');}
 function maskTel(v){v=v.replace(/\D/g,'').slice(0,11);if(v.length<=10)return v.replace(/^(\d{2})(\d{4})(\d{0,4})$/,'($1) $2-$3');return v.replace(/^(\d{2})(\d{5})(\d{0,4})$/,'($1) $2-$3');}
 function maskCEP(v){return v.replace(/\D/g,'').slice(0,8).replace(/(\d{5})(\d)/,'$1-$2');}
@@ -318,6 +333,7 @@ function fmtCapital(v){v=v.replace(/\D/g,'');if(!v)return '';v=(parseInt(v)/100)
 
 function $(id){ return document.getElementById(id); }
 
+// ── CEP lookup — endereços fixos ──────────────────────────────────────────────
 async function buscarCEP(cepId, logId, bairroId, cidId, ufId) {
   const cep = $('inp_'+cepId).value.replace(/\D/g,'');
   if(cep.length !== 8) return;
@@ -333,6 +349,29 @@ async function buscarCEP(cepId, logId, bairroId, cidId, ufId) {
   } catch(e) {}
 }
 
+// ── CEP lookup — sócio adicional ─────────────────────────────────────────────
+async function buscarCEP_soc(idx) {
+  const el = $('inp_soc_cep_'+idx);
+  if(!el) return;
+  const cep = el.value.replace(/\D/g,'');
+  if(cep.length !== 8) return;
+  try {
+    const r = await fetch('https://viacep.com.br/ws/'+cep+'/json/');
+    const d = await r.json();
+    if(!d.erro) {
+      const set = (id, val) => { const e = $(id); if(e) e.value = val; };
+      set('inp_soc_log_'+idx,    d.logradouro||'');
+      set('inp_soc_bairro_'+idx, d.bairro||'');
+      set('inp_soc_cid_'+idx,    d.localidade||'');
+      set('inp_soc_uf_'+idx,     d.uf||'PR');
+      sociosAdicionais[idx].log    = d.logradouro||'';
+      sociosAdicionais[idx].bairro = d.bairro||'';
+      sociosAdicionais[idx].cid    = d.localidade||'';
+      sociosAdicionais[idx].uf     = d.uf||'PR';
+    }
+  } catch(e) {}
+}
+
 // ── Regime de bens — sócio principal ─────────────────────────────────────────
 function toggleRegimePrincipal(val) {
   const wrap = $('regimePrincipal_wrap');
@@ -344,17 +383,7 @@ function toggleRegimePrincipal(val) {
   if(!casado) sel.value = '';
 }
 
-// ── Sócios adicionais ─────────────────────────────────────────────────────────
-function addSocio() {
-  sociosAdicionais.push({ nome:'', cpf:'', participacao:'', estadoCivil:'', regimeBens:'' });
-  renderSocios();
-}
-
-function removeSocio(idx) {
-  sociosAdicionais.splice(idx, 1);
-  renderSocios();
-}
-
+// ── Regime de bens — sócios adicionais ───────────────────────────────────────
 function toggleRegimeSoc(idx, val) {
   const wrap = $('soc_rb_wrap_'+idx);
   const sel  = $('inp_soc_rb_'+idx);
@@ -363,6 +392,25 @@ function toggleRegimeSoc(idx, val) {
   wrap.style.display = casado ? 'block' : 'none';
   sel.required = casado;
   if(!casado) { sel.value = ''; sociosAdicionais[idx].regimeBens = ''; }
+}
+
+// ── Sócios adicionais ─────────────────────────────────────────────────────────
+function addSocio() {
+  sociosAdicionais.push({
+    nome:'', cpf:'', participacao:'', estadoCivil:'', regimeBens:'',
+    cep:'', log:'', num:'', comp:'', bairro:'', cid:'', uf:''
+  });
+  renderSocios();
+  renderDocs();
+}
+
+function removeSocio(idx) {
+  // Remove arquivos do sócio que está sendo removido
+  const prefix = `s${idx+1}_`;
+  Object.keys(uploadedFiles).forEach(k => { if(k.startsWith(prefix)) delete uploadedFiles[k]; });
+  sociosAdicionais.splice(idx, 1);
+  renderSocios();
+  renderDocs();
 }
 
 function renderSocios() {
@@ -375,12 +423,16 @@ function renderSocios() {
     const casado = (s.estadoCivil === 'Casado(a)' || s.estadoCivil === 'União Estável');
     const ecOpts = EC_OPTS.map(o => `<option${s.estadoCivil===o?' selected':''}>${o}</option>`).join('');
     const rbOpts = REGIMES.map(o => `<option${s.regimeBens===o?' selected':''}>${o}</option>`).join('');
+    const ufSocOpts = UF_LIST.map(u => `<option value="${u}"${s.uf===u?' selected':''}>${u}</option>`).join('');
+
     return `
     <div class="socio-card">
       <div class="socio-card-header">
         <span class="socio-card-title">👤 ${i+2}º Sócio</span>
         <button type="button" class="btn-remove-socio" onclick="removeSocio(${i})">✕ Remover</button>
       </div>
+
+      <!-- Dados pessoais -->
       <div class="field">
         <label>Nome Completo <span class="req">*</span></label>
         <input type="text" id="inp_soc_nome_${i}" required placeholder="Nome conforme RG/CNH"
@@ -413,38 +465,102 @@ function renderSocios() {
           </select>
         </div>
       </div>
+
+      <!-- Endereço pessoal do sócio -->
+      <div class="socio-subsec">🏠 Endereço Pessoal</div>
+      <div class="grid2">
+        <div class="field">
+          <label>CEP <span class="req">*</span></label>
+          <input type="text" id="inp_soc_cep_${i}" required placeholder="00000-000" maxlength="9"
+            value="${s.cep}"
+            oninput="this.value=maskCEP(this.value);sociosAdicionais[${i}].cep=this.value"
+            onblur="buscarCEP_soc(${i})"/>
+        </div>
+        <div class="field">
+          <label>Logradouro <span class="req">*</span></label>
+          <input type="text" id="inp_soc_log_${i}" required placeholder="Rua, Av, Travessa..."
+            value="${s.log}" oninput="sociosAdicionais[${i}].log=this.value"/>
+        </div>
+      </div>
+      <div class="grid3">
+        <div class="field">
+          <label>Número <span class="req">*</span></label>
+          <input type="text" id="inp_soc_num_${i}" required placeholder="123"
+            value="${s.num}" oninput="sociosAdicionais[${i}].num=this.value"/>
+        </div>
+        <div class="field">
+          <label>Complemento</label>
+          <input type="text" id="inp_soc_comp_${i}" placeholder="Apto, Bloco..."
+            value="${s.comp}" oninput="sociosAdicionais[${i}].comp=this.value"/>
+        </div>
+        <div class="field">
+          <label>Bairro <span class="req">*</span></label>
+          <input type="text" id="inp_soc_bairro_${i}" required placeholder="Bairro"
+            value="${s.bairro}" oninput="sociosAdicionais[${i}].bairro=this.value"/>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>Cidade <span class="req">*</span></label>
+          <input type="text" id="inp_soc_cid_${i}" required placeholder="Cidade"
+            value="${s.cid}" oninput="sociosAdicionais[${i}].cid=this.value"/>
+        </div>
+        <div class="field">
+          <label>Estado <span class="req">*</span></label>
+          <select id="inp_soc_uf_${i}" required onchange="sociosAdicionais[${i}].uf=this.value">
+            <option value="">UF</option>${ufSocOpts}
+          </select>
+        </div>
+      </div>
     </div>`;
   }).join('');
 }
 
 // ── Documentos ────────────────────────────────────────────────────────────────
+function renderDocField(key, label) {
+  const f = uploadedFiles[key];
+  if(f) {
+    return `<div style="margin-bottom:16px">
+      <label class="doc-field-label">${label}</label>
+      <div class="file-preview">
+        📎 ${f.name} (${(f.size/1024).toFixed(0)} KB)
+        <button type="button" onclick="removerDoc('${key}')">✕</button>
+      </div>
+    </div>`;
+  }
+  return `<div style="margin-bottom:16px">
+    <label class="doc-field-label">${label}</label>
+    <div class="upload-area" onclick="$('file_${key}').click()">
+      <input type="file" id="file_${key}" accept="image/*,.pdf" onchange="handleDoc(this,'${key}')"/>
+      <div class="icon">📄</div>
+      <div class="txt">Clique para selecionar</div>
+      <div class="sub">JPG, PNG ou PDF · máx. 5 MB</div>
+    </div>
+  </div>`;
+}
+
 function renderDocs() {
   const container = $('docsContainer');
   if(!container) return;
   let html = '';
-  DOC_GRUPOS.forEach(grupo => {
-    html += `<div class="doc-group-title">${grupo.titulo}</div>`;
-    grupo.docs.forEach(doc => {
-      html += `<div style="margin-bottom:16px">
-        <label style="display:block;font-size:12px;font-weight:600;color:#4a7c75;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
-          ${doc.label}
-        </label>`;
-      if(uploadedFiles[doc.key]) {
-        html += `<div class="file-preview">
-          📎 ${uploadedFiles[doc.key].name} (${(uploadedFiles[doc.key].size/1024).toFixed(0)} KB)
-          <button type="button" onclick="removerDoc('${doc.key}')">✕</button>
-        </div>`;
-      } else {
-        html += `<div class="upload-area" onclick="$('file_${doc.key}').click()">
-          <input type="file" id="file_${doc.key}" accept="image/*,.pdf" onchange="handleDoc(this,'${doc.key}')"/>
-          <div class="icon">📄</div>
-          <div class="txt">Clique para selecionar</div>
-          <div class="sub">JPG, PNG ou PDF · máx. 5 MB</div>
-        </div>`;
-      }
-      html += '</div>';
-    });
+
+  // ── Sócios ────────────────────────────────────────────────────────────────
+  // 1º Sócio (principal) — chave: s0_*
+  const nomeP = $('inp_nome')?.value?.trim();
+  html += `<div class="doc-group-title">👤 1º Sócio${nomeP ? ' — '+nomeP : ''}</div>`;
+  DOCS_SOCIO.forEach(doc => { html += renderDocField(`s0_${doc.key}`, doc.label); });
+
+  // Sócios adicionais — chave: s1_*, s2_*, ...
+  sociosAdicionais.forEach((s, i) => {
+    const label = s.nome ? `👤 ${i+2}º Sócio — ${s.nome}` : `👤 ${i+2}º Sócio`;
+    html += `<div class="doc-group-title">${label}</div>`;
+    DOCS_SOCIO.forEach(doc => { html += renderDocField(`s${i+1}_${doc.key}`, doc.label); });
   });
+
+  // ── Empresa ───────────────────────────────────────────────────────────────
+  html += `<div class="doc-group-title">🏢 Empresa</div>`;
+  DOCS_EMPRESA.forEach(doc => { html += renderDocField(doc.key, doc.label); });
+
   container.innerHTML = html;
 }
 
@@ -462,9 +578,19 @@ function handleDoc(input, key) {
 
 function removerDoc(key) {
   delete uploadedFiles[key];
-  const inp = $('file_'+key);
-  if(inp) inp.value = '';
   renderDocs();
+}
+
+// Lista plana de docs para envio (calculada dinamicamente no momento do envio)
+function getDocsFlat() {
+  const flat = [];
+  DOCS_SOCIO.forEach(d => flat.push({ key:`s0_${d.key}`,  label:`1º Sócio — ${d.label}` }));
+  sociosAdicionais.forEach((s, i) => {
+    const nome = s.nome || `${i+2}º Sócio`;
+    DOCS_SOCIO.forEach(d => flat.push({ key:`s${i+1}_${d.key}`, label:`${nome} — ${d.label}` }));
+  });
+  DOCS_EMPRESA.forEach(d => flat.push({ key: d.key, label: d.label }));
+  return flat;
 }
 
 // ── Renderiza formulário ──────────────────────────────────────────────────────
@@ -584,10 +710,12 @@ function renderForm() {
 
     <!-- 4. Sócio Principal -->
     <div class="card">
-      <div class="card-title">👤 Sócio / Responsável Principal</div>
+      <div class="card-title">👤 1º Sócio / Responsável Principal</div>
+
       <div class="field">
         <label>Nome Completo <span class="req">*</span></label>
-        <input id="inp_nome" type="text" required placeholder="Nome conforme RG/CNH"/>
+        <input id="inp_nome" type="text" required placeholder="Nome conforme RG/CNH"
+          oninput="atualizarNomeSoc0()"/>
       </div>
       <div class="grid2">
         <div class="field">
@@ -640,17 +768,9 @@ function renderForm() {
             oninput="this.value=maskTel(this.value)"/>
         </div>
       </div>
-    </div>
 
-    <!-- 5. Sócios Adicionais (dinâmico) -->
-    <div id="sociosContainer"></div>
-    <button type="button" class="btn-add-socio" onclick="addSocio()">
-      ➕ Adicionar Sócio
-    </button>
-
-    <!-- 6. Endereço Pessoal -->
-    <div class="card">
-      <div class="card-title">🏠 Endereço Pessoal do Sócio Principal</div>
+      <!-- Endereço Pessoal do 1º Sócio -->
+      <div class="subsec">🏠 Endereço Pessoal</div>
       <div class="grid2">
         <div class="field">
           <label>CEP <span class="req">*</span></label>
@@ -691,16 +811,23 @@ function renderForm() {
       </div>
     </div>
 
-    <!-- 7. Documentos -->
+    <!-- 5. Sócios Adicionais (dinâmico) -->
+    <div id="sociosContainer"></div>
+    <button type="button" class="btn-add-socio" onclick="addSocio()">
+      ➕ Adicionar Sócio
+    </button>
+
+    <!-- 6. Documentos -->
     <div class="card">
       <div class="card-title">📎 Documentos</div>
-      <p style="font-size:13px;color:#4a7c75;margin-bottom:4px;line-height:1.5">
-        Envie os documentos disponíveis. Formatos aceitos: <strong>JPG, PNG ou PDF</strong> · Máximo <strong>5 MB</strong> por arquivo.
+      <p style="font-size:13px;color:#4a7c75;margin-bottom:16px;line-height:1.5">
+        Envie os documentos disponíveis. Os documentos estão organizados por <strong>sócio</strong> e por <strong>empresa</strong>.
+        Formatos aceitos: <strong>JPG, PNG ou PDF</strong> · Máximo <strong>5 MB</strong> por arquivo.
       </p>
       <div id="docsContainer"></div>
     </div>
 
-    <!-- 8. Observações -->
+    <!-- 7. Observações -->
     <div class="card">
       <div class="card-title">💬 Observações</div>
       <div class="field">
@@ -722,25 +849,39 @@ function renderForm() {
   renderDocs();
 }
 
+// Atualiza label do 1º Sócio nos docs quando o nome é digitado
+function atualizarNomeSoc0() {
+  const el = $('inp_nome');
+  if(!el) return;
+  // Atualiza cabeçalho do grupo de docs do sócio 0 se já existir
+  renderDocs();
+}
+
 // ── Coleta dados ──────────────────────────────────────────────────────────────
 function coletarDados() {
   const g = id => $('inp_'+id)?.value?.trim() || '';
 
-  // Monta texto dos sócios adicionais para incluir nas obs
-  const sociosTexto = sociosAdicionais.map((s, i) =>
-    `${i+2}º Sócio: ${s.nome}` +
-    (s.cpf          ? ` | CPF: ${s.cpf}`                  : '') +
-    (s.participacao  ? ` | Participação: ${s.participacao}` : '') +
-    (s.estadoCivil   ? ` | Estado Civil: ${s.estadoCivil}` : '') +
-    (s.regimeBens    ? ` (${s.regimeBens})`                 : '')
-  ).join('\n');
+  // Texto completo de cada sócio adicional (dados pessoais + endereço)
+  const sociosTexto = sociosAdicionais.map((s, i) => {
+    const end = [
+      s.log  ? `${s.log}, ${s.num}${s.comp?' – '+s.comp:''}` : '',
+      s.bairro || '',
+      s.cid && s.uf ? `${s.cid}/${s.uf}` : s.cid || '',
+      s.cep  ? `CEP ${s.cep}` : '',
+    ].filter(Boolean).join(' — ');
+    return `${i+2}º Sócio: ${s.nome}` +
+      (s.cpf         ? ` | CPF: ${s.cpf}`                  : '') +
+      (s.participacao ? ` | Part.: ${s.participacao}`       : '') +
+      (s.estadoCivil  ? ` | Est. Civil: ${s.estadoCivil}`  : '') +
+      (s.regimeBens   ? ` (${s.regimeBens})`                : '') +
+      (end            ? `\n   Endereço: ${end}`             : '');
+  }).join('\n');
 
-  // Enriquece obs com dados de sócios
-  const obsBase = g('obs');
-  const extras  = [
-    g('participacao')     ? `1º Sócio — Participação: ${g('participacao')}`         : '',
-    g('regimePrincipal')  ? `1º Sócio — Regime de Bens: ${g('regimePrincipal')}`   : '',
-    sociosTexto           ? `Sócios Adicionais:\n${sociosTexto}`                    : '',
+  const obsBase    = g('obs');
+  const extras     = [
+    g('participacao')    ? `1º Sócio — Participação: ${g('participacao')}`       : '',
+    g('regimePrincipal') ? `1º Sócio — Regime de Bens: ${g('regimePrincipal')}` : '',
+    sociosTexto          ? `Sócios Adicionais:\n${sociosTexto}`                   : '',
   ].filter(Boolean).join('\n');
   const obsCompleto = obsBase + (extras ? (obsBase ? '\n\n' : '') + extras : '');
 
@@ -754,9 +895,9 @@ function coletarDados() {
     email:           '',
     emailCnpj:       g('emailCnpj'),
     emailEscritorio: g('emailEscritorio'),
-    cepPes:    g('cepPes'),   logPes:    g('logPes'),
-    numPes:    g('numPes'),   compPes:   g('compPes'),
-    bairroPes: g('bairroPes'),cidPes:    g('cidPes'),   ufPes: g('ufPes'),
+    cepPes:    g('cepPes'),    logPes:    g('logPes'),
+    numPes:    g('numPes'),    compPes:   g('compPes'),
+    bairroPes: g('bairroPes'), cidPes:    g('cidPes'),   ufPes: g('ufPes'),
     razao:       g('razao'),
     fantasia:    g('fantasia'),
     capital:     g('capital'),
@@ -765,40 +906,30 @@ function coletarDados() {
     inscrImobil: g('inscrImobil'),
     mtgImovel:   g('mtgImovel'),
     mtgEstab:    g('mtgEstab'),
-    cepEmp:    g('cepEmp'),   logEmp:    g('logEmp'),
-    numEmp:    g('numEmp'),   compEmp:   g('compEmp'),
-    bairroEmp: g('bairroEmp'),cidEmp:    g('cidEmp'),   ufEmp: g('ufEmp'),
+    cepEmp:    g('cepEmp'),    logEmp:    g('logEmp'),
+    numEmp:    g('numEmp'),    compEmp:   g('compEmp'),
+    bairroEmp: g('bairroEmp'), cidEmp:    g('cidEmp'),   ufEmp: g('ufEmp'),
     obs:         obsCompleto,
   };
 }
 
-// ── Valida sócios adicionais ──────────────────────────────────────────────────
+// ── Validação dos sócios adicionais ──────────────────────────────────────────
 function validarSocios() {
   for(let i = 0; i < sociosAdicionais.length; i++) {
-    const s = sociosAdicionais[i];
-    if(!s.nome.trim()) {
-      alert(`Informe o nome completo do ${i+2}º sócio.`);
-      $('inp_soc_nome_'+i)?.focus();
-      return false;
-    }
-    if(!s.cpf.trim()) {
-      alert(`Informe o CPF do ${i+2}º sócio.`);
-      $('inp_soc_cpf_'+i)?.focus();
-      return false;
-    }
-    if(!s.participacao.trim()) {
-      alert(`Informe a participação no capital do ${i+2}º sócio.`);
-      return false;
-    }
-    if(!s.estadoCivil) {
-      alert(`Informe o estado civil do ${i+2}º sócio.`);
-      return false;
-    }
+    const s   = sociosAdicionais[i];
+    const ord = `${i+2}º sócio`;
+    if(!s.nome.trim())        { alert(`Informe o nome completo do ${ord}.`);           $('inp_soc_nome_'+i)?.focus();  return false; }
+    if(!s.cpf.trim())         { alert(`Informe o CPF do ${ord}.`);                    $('inp_soc_cpf_'+i)?.focus();   return false; }
+    if(!s.participacao.trim()){ alert(`Informe a participação no capital do ${ord}.`); $('inp_soc_part_'+i)?.focus();  return false; }
+    if(!s.estadoCivil)        { alert(`Informe o estado civil do ${ord}.`);            $('inp_soc_ec_'+i)?.focus();    return false; }
     const casado = (s.estadoCivil === 'Casado(a)' || s.estadoCivil === 'União Estável');
-    if(casado && !s.regimeBens) {
-      alert(`Informe o regime de bens do ${i+2}º sócio.`);
-      return false;
-    }
+    if(casado && !s.regimeBens){ alert(`Informe o regime de bens do ${ord}.`);          $('inp_soc_rb_'+i)?.focus();    return false; }
+    if(!s.cep.trim())          { alert(`Informe o CEP do endereço do ${ord}.`);         $('inp_soc_cep_'+i)?.focus();   return false; }
+    if(!s.log.trim())          { alert(`Informe o logradouro do ${ord}.`);              $('inp_soc_log_'+i)?.focus();   return false; }
+    if(!s.num.trim())          { alert(`Informe o número do endereço do ${ord}.`);      $('inp_soc_num_'+i)?.focus();   return false; }
+    if(!s.bairro.trim())       { alert(`Informe o bairro do endereço do ${ord}.`);      $('inp_soc_bairro_'+i)?.focus();return false; }
+    if(!s.cid.trim())          { alert(`Informe a cidade do endereço do ${ord}.`);      $('inp_soc_cid_'+i)?.focus();   return false; }
+    if(!s.uf)                  { alert(`Informe o estado (UF) do endereço do ${ord}.`); $('inp_soc_uf_'+i)?.focus();    return false; }
   }
   return true;
 }
@@ -814,7 +945,8 @@ async function enviarFicha(e) {
   msg.innerHTML = '';
 
   try {
-    const dados = coletarDados();
+    const dados    = coletarDados();
+    const docsFlat = getDocsFlat();
     const totalArqs = Object.keys(uploadedFiles).length;
     let etapa = 0;
 
@@ -822,7 +954,7 @@ async function enviarFicha(e) {
     setMsg(totalArqs > 0 ? `Preparando documentos (0/${totalArqs})...` : 'Preparando dados...');
 
     const arquivos = [];
-    for(const doc of DOCS_FLAT) {
+    for(const doc of docsFlat) {
       const file = uploadedFiles[doc.key];
       if(!file) continue;
       const base64 = await new Promise((res, rej) => {
