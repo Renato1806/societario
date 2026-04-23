@@ -626,20 +626,25 @@ function renderForm() {
       ➕ Adicionar Sócio
     </button>
 
-    <!-- 5. E-mails -->
+    <!-- 5. Contatos -->
     <div class="card">
-      <div class="card-title">📧 E-mails</div>
+      <div class="card-title">📞 Contatos</div>
       <div class="grid2">
         <div class="field">
-          <label>E-mail para Cartão CNPJ</label>
-          <input id="inp_emailCnpj" type="email" placeholder="email para cadastro na Receita"/>
+          <label>E-mail para Cartão CNPJ <span class="req">*</span></label>
+          <input id="inp_emailCnpj" type="email" required placeholder="email para cadastro na Receita"/>
           <div class="hint">Usado no cadastro da empresa na Receita Federal</div>
         </div>
         <div class="field">
-          <label>E-mail para Acesso aos Sistemas</label>
-          <input id="inp_emailEscritorio" type="email" placeholder="email para acesso ao sistema"/>
+          <label>E-mail para Acesso aos Sistemas <span class="req">*</span></label>
+          <input id="inp_emailEscritorio" type="email" required placeholder="email para acesso ao sistema"/>
           <div class="hint">Usado para criação de acesso ao escritório</div>
         </div>
+      </div>
+      <div class="field">
+        <label>Telefone da Empresa <span class="req">*</span></label>
+        <input id="inp_telEmp" type="text" required placeholder="(44) 99999-9999" maxlength="15"
+          oninput="this.value=maskTel(this.value)"/>
       </div>
     </div>
 
@@ -756,7 +761,7 @@ function coletarDados() {
     fantasia:    g('fantasia'),
     capital:     g('capital'),
     atividades:  g('atividades'),
-    telEmp:      '',
+    telEmp:      g('telEmp'),
     inscrImobil: g('inscrImobil'),
     mtgImovel:   g('mtgImovel'),
     mtgEstab:    g('mtgEstab'),
